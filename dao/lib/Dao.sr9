@@ -356,21 +356,21 @@ module {
     requires true;
     ensures model(dao) == old(model(dao));
   {
-    mapGetNat(dao.liquid, Principal.toText(user))
+    mapGetNat(dao.liquid, accountKey(user))
   };
 
   public func activeStake(dao : State, user : Principal) : Nat
     requires true;
     ensures model(dao) == old(model(dao));
   {
-    mapGetNat(dao.activeStake, Principal.toText(user))
+    mapGetNat(dao.activeStake, accountKey(user))
   };
 
   public func pendingUnstake(dao : State, user : Principal) : ?Types.PendingUnstake
     requires true;
     ensures model(dao) == old(model(dao));
   {
-    let key = Principal.toText(user);
+    let key = accountKey(user);
     let amount = mapGetNat(dao.pendingAmounts, key);
     if (amount == 0) {
       null
@@ -383,7 +383,7 @@ module {
     requires true;
     ensures model(dao) == old(model(dao));
   {
-    mapGetNat(dao.pendingAmounts, Principal.toText(user))
+    mapGetNat(dao.pendingAmounts, accountKey(user))
   };
 
   public func pendingWithdrawal(dao : State, user : Principal) : ?Types.PendingWithdrawal
@@ -407,7 +407,7 @@ module {
     requires true;
     ensures model(dao) == old(model(dao));
   {
-    mapGetNat(dao.pendingWithdrawDebits, Principal.toText(user))
+    mapGetNat(dao.pendingWithdrawDebits, accountKey(user))
   };
 
   public func stakeInfo(dao : State, user : Principal) : Types.StakeInfo
@@ -416,10 +416,10 @@ module {
   {
     let pending = pendingUnstake(dao, user);
     {
-      liquid = liquidBalance(dao, user);
-      activeStake = activeStake(dao, user);
-      pendingUnstake = pendingUnstakeAmount(dao, user);
-      pendingWithdraw = pendingWithdrawAmount(dao, user);
+      liquid = mapGetNat(dao.liquid, accountKey(user));
+      activeStake = mapGetNat(dao.activeStake, accountKey(user));
+      pendingUnstake = mapGetNat(dao.pendingAmounts, accountKey(user));
+      pendingWithdraw = mapGetNat(dao.pendingWithdrawDebits, accountKey(user));
       unlockAt = switch (pending) {
         case (?p) { ?p.unlockAt };
         case null { null }
@@ -493,7 +493,7 @@ module {
     #ok(())
   };
 
-  public func finishDepositOk(
+  private func finishDepositOkImpl(
     dao : State,
     user : Principal,
     ledger : Principal,
@@ -510,6 +510,10 @@ module {
     ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
     ensures config(dao) == old(config(dao));
     ensures governanceLedger(dao) == old(governanceLedger(dao));
+    ensures mapGetNat(dao.liquid, accountKey(user)) == old(mapGetNat(dao.liquid, accountKey(user))) + amount;
+    ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
+    ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
+    ensures mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user)));
     ensures switch (result) {
       case (#ok receipt) {
         receipt.ledger == ledger and
@@ -534,14 +538,19 @@ module {
     })
   };
 
-  public func finishDepositErr(
+  private func finishDepositErrImpl(
     dao : State,
+    user : Principal,
     err : ICRCLedger.TransferFromError
   ) : Types.Result<Types.DepositReceipt, Types.DepositError>
     requires true;
     ensures supplyBalanced(dao);
     ensures configValid(dao);
     ensures model(dao) == old(model(dao));
+    ensures mapGetNat(dao.liquid, accountKey(user)) == old(mapGetNat(dao.liquid, accountKey(user)));
+    ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
+    ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
+    ensures mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user)));
     ensures switch (result) {
       case (#ok(_)) { false };
       case (#err(_)) { true }
@@ -550,14 +559,19 @@ module {
     #err(#ledgerTransferFromErr err)
   };
 
-  public func finishDepositReject(
+  private func finishDepositRejectImpl(
     dao : State,
+    user : Principal,
     reject : Types.LedgerReject
   ) : Types.Result<Types.DepositReceipt, Types.DepositError>
     requires true;
     ensures supplyBalanced(dao);
     ensures configValid(dao);
     ensures model(dao) == old(model(dao));
+    ensures mapGetNat(dao.liquid, accountKey(user)) == old(mapGetNat(dao.liquid, accountKey(user)));
+    ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
+    ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
+    ensures mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user)));
     ensures switch (result) {
       case (#ok(_)) { false };
       case (#err(_)) { true }
@@ -566,7 +580,7 @@ module {
     #err(#ledgerTransferFromRejected reject)
   };
 
-  public func beginWithdraw(
+  private func beginWithdrawImpl(
     dao : State,
     user : Principal,
     ledger : Principal,
@@ -581,17 +595,23 @@ module {
     ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
     ensures config(dao) == old(config(dao));
     ensures governanceLedger(dao) == old(governanceLedger(dao));
+    ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
+    ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
     ensures switch (result) {
       case (#ok started) {
         started.ledger == ledger and
         started.amount == amount and
         started.fee == fee and
         started.debitAmount == amount + fee and
+        mapGetNat(dao.liquid, accountKey(user)) + started.debitAmount == old(mapGetNat(dao.liquid, accountKey(user))) and
+        mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == started.debitAmount and
         totalLiquid(dao) + started.debitAmount == old(totalLiquid(dao)) and
         totalPendingWithdraw(dao) ==
           old(totalPendingWithdraw(dao)) + started.debitAmount
       };
       case (#err(_)) {
+        mapGetNat(dao.liquid, accountKey(user)) == old(mapGetNat(dao.liquid, accountKey(user))) and
+        mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) and
         totalLiquid(dao) == old(totalLiquid(dao)) and
         totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao))
       }
@@ -627,7 +647,7 @@ module {
     })
   };
 
-  public func finishWithdrawOk(
+  private func finishWithdrawOkImpl(
     dao : State,
     user : Principal,
     started : Types.WithdrawStarted,
@@ -642,6 +662,8 @@ module {
     ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
     ensures config(dao) == old(config(dao));
     ensures governanceLedger(dao) == old(governanceLedger(dao));
+    ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
+    ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
     ensures switch (result) {
       case (#ok receipt) {
         receipt.ledger == started.ledger and
@@ -650,7 +672,8 @@ module {
         receipt.debitAmount == started.debitAmount and
         receipt.debitAmount == receipt.amount + receipt.fee and
         receipt.txIndex == txIndex and
-        receipt.liquidBalance == mapGetNat(dao.liquid, accountKey(user))
+        receipt.liquidBalance == mapGetNat(dao.liquid, accountKey(user)) and
+        mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == 0
       };
       case (#err(_)) { true }
     };
@@ -681,7 +704,7 @@ module {
     })
   };
 
-  public func finishWithdrawErr(
+  private func finishWithdrawErrImpl(
     dao : State,
     user : Principal,
     started : Types.WithdrawStarted,
@@ -695,6 +718,17 @@ module {
     ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
     ensures config(dao) == old(config(dao));
     ensures governanceLedger(dao) == old(governanceLedger(dao));
+    ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
+    ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
+    ensures if (
+      old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) > 0 and
+      old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) == started.debitAmount and
+      old(totalPendingWithdraw(dao)) >= old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user)))
+    ) {
+      mapGetNat(dao.liquid, accountKey(user)) ==
+        old(mapGetNat(dao.liquid, accountKey(user))) + old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) and
+      mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == 0
+    } else { true };
     ensures switch (result) {
       case (#ok(_)) { false };
       case (#err(_)) { true }
@@ -704,7 +738,7 @@ module {
     #err(#ledgerTransferErr err)
   };
 
-  public func finishWithdrawReject(
+  private func finishWithdrawRejectImpl(
     dao : State,
     user : Principal,
     started : Types.WithdrawStarted,
@@ -718,6 +752,17 @@ module {
     ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
     ensures config(dao) == old(config(dao));
     ensures governanceLedger(dao) == old(governanceLedger(dao));
+    ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
+    ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
+    ensures if (
+      old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) > 0 and
+      old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) == started.debitAmount and
+      old(totalPendingWithdraw(dao)) >= old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user)))
+    ) {
+      mapGetNat(dao.liquid, accountKey(user)) ==
+        old(mapGetNat(dao.liquid, accountKey(user))) + old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) and
+      mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == 0
+    } else { true };
     ensures switch (result) {
       case (#ok(_)) { false };
       case (#err(_)) { true }
@@ -740,6 +785,17 @@ module {
     ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
     ensures config(dao) == old(config(dao));
     ensures governanceLedger(dao) == old(governanceLedger(dao));
+    ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
+    ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
+    ensures if (
+      old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) > 0 and
+      old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) == started.debitAmount and
+      old(totalPendingWithdraw(dao)) >= old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user)))
+    ) {
+      mapGetNat(dao.liquid, accountKey(user)) ==
+        old(mapGetNat(dao.liquid, accountKey(user))) + old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) and
+      mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == 0
+    } else { true };
   {
     let key = accountKey(user);
     let pendingDebit = mapGetNat(dao.pendingWithdrawDebits, key);
@@ -762,7 +818,7 @@ module {
     dao.totalLiquid += pendingDebit
   };
 
-  public func stake(
+  private func stakeImpl(
     dao : State,
     user : Principal,
     amount : Nat
@@ -772,6 +828,21 @@ module {
     ensures configValid(dao);
     ensures totalSupply(dao) == old(totalSupply(dao));
     ensures config(dao) == old(config(dao));
+    ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
+    ensures mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user)));
+    ensures switch (result) {
+      case (#ok receipt) {
+        receipt.amount == amount and
+        mapGetNat(dao.liquid, accountKey(user)) + amount == old(mapGetNat(dao.liquid, accountKey(user))) and
+        mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user))) + amount and
+        receipt.liquidBalance == mapGetNat(dao.liquid, accountKey(user)) and
+        receipt.activeStake == mapGetNat(dao.activeStake, accountKey(user))
+      };
+      case (#err(_)) {
+        mapGetNat(dao.liquid, accountKey(user)) == old(mapGetNat(dao.liquid, accountKey(user))) and
+        mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)))
+      }
+    };
   {
     if (amount == 0) {
       return #err(#zeroAmount)
@@ -798,7 +869,7 @@ module {
     })
   };
 
-  public func requestUnstake(
+  private func requestUnstakeImpl(
     dao : State,
     user : Principal,
     amount : Nat,
@@ -809,6 +880,23 @@ module {
     ensures configValid(dao);
     ensures totalSupply(dao) == old(totalSupply(dao));
     ensures config(dao) == old(config(dao));
+    ensures mapGetNat(dao.liquid, accountKey(user)) == old(mapGetNat(dao.liquid, accountKey(user)));
+    ensures mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user)));
+    ensures switch (result) {
+      case (#ok receipt) {
+        receipt.amount == amount and
+        mapGetNat(dao.activeStake, accountKey(user)) + amount == old(mapGetNat(dao.activeStake, accountKey(user))) and
+        mapGetNat(dao.pendingAmounts, accountKey(user)) == amount and
+        receipt.activeStake == mapGetNat(dao.activeStake, accountKey(user)) and
+        receipt.pendingUnstake == mapGetNat(dao.pendingAmounts, accountKey(user)) and
+        receipt.unlockAt == now + UNSTAKE_DELAY_NS and
+        mapGetInt(dao.pendingUnlocks, accountKey(user)) == now + UNSTAKE_DELAY_NS
+      };
+      case (#err(_)) {
+        mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user))) and
+        mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)))
+      }
+    };
   {
     if (amount == 0) {
       return #err(#zeroAmount)
@@ -841,7 +929,7 @@ module {
     })
   };
 
-  public func claimUnstaked(
+  private func claimUnstakedImpl(
     dao : State,
     user : Principal,
     now : Int
@@ -851,6 +939,20 @@ module {
     ensures configValid(dao);
     ensures totalSupply(dao) == old(totalSupply(dao));
     ensures config(dao) == old(config(dao));
+    ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
+    ensures mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user)));
+    ensures switch (result) {
+      case (#ok receipt) {
+        receipt.amount == old(mapGetNat(dao.pendingAmounts, accountKey(user))) and
+        mapGetNat(dao.liquid, accountKey(user)) == old(mapGetNat(dao.liquid, accountKey(user))) + receipt.amount and
+        mapGetNat(dao.pendingAmounts, accountKey(user)) == 0 and
+        receipt.liquidBalance == mapGetNat(dao.liquid, accountKey(user))
+      };
+      case (#err(_)) {
+        mapGetNat(dao.liquid, accountKey(user)) == old(mapGetNat(dao.liquid, accountKey(user))) and
+        mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)))
+      }
+    };
   {
     let key = accountKey(user);
     let amount = mapGetNat(dao.pendingAmounts, key);
@@ -877,7 +979,7 @@ module {
     })
   };
 
-  public func createProposal(
+  private func createProposalImpl(
     dao : State,
     proposer : Principal,
     action : Types.ConfigAction
@@ -889,11 +991,22 @@ module {
     ensures totalLiquid(dao) == old(totalLiquid(dao));
     ensures totalActiveStake(dao) == old(totalActiveStake(dao));
     ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
+    ensures mapGetNat(dao.liquid, accountKey(proposer)) == old(mapGetNat(dao.liquid, accountKey(proposer)));
+    ensures mapGetNat(dao.activeStake, accountKey(proposer)) == old(mapGetNat(dao.activeStake, accountKey(proposer)));
+    ensures mapGetNat(dao.pendingAmounts, accountKey(proposer)) == old(mapGetNat(dao.pendingAmounts, accountKey(proposer)));
+    ensures mapGetNat(dao.pendingWithdrawDebits, accountKey(proposer)) == old(mapGetNat(dao.pendingWithdrawDebits, accountKey(proposer)));
+    ensures forall<Text>(pure func (key : Text) : Bool =
+      mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
+      mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
+      mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
+      mapGetNat(dao.pendingWithdrawDebits, key) ==
+        old(mapGetNat(dao.pendingWithdrawDebits, key)));
   {
     if (dao.hasProposal and (dao.proposalStatus == 0 or dao.proposalStatus == 1)) {
       return #err(#proposalInProgress)
     };
-    let proposerStake = activeStake(dao, proposer);
+    let proposerStake = mapGetNat(dao.activeStake, accountKey(proposer));
     if (proposerStake < dao.proposalThreshold) {
       return #err(#proposalThresholdNotMet)
     };
@@ -922,7 +1035,7 @@ module {
     })
   };
 
-  public func vote(
+  private func voteImpl(
     dao : State,
     voter : Principal,
     id : Nat,
@@ -935,7 +1048,18 @@ module {
     ensures totalLiquid(dao) == old(totalLiquid(dao));
     ensures totalActiveStake(dao) == old(totalActiveStake(dao));
     ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
     ensures config(dao) == old(config(dao));
+    ensures mapGetNat(dao.liquid, accountKey(voter)) == old(mapGetNat(dao.liquid, accountKey(voter)));
+    ensures mapGetNat(dao.activeStake, accountKey(voter)) == old(mapGetNat(dao.activeStake, accountKey(voter)));
+    ensures mapGetNat(dao.pendingAmounts, accountKey(voter)) == old(mapGetNat(dao.pendingAmounts, accountKey(voter)));
+    ensures mapGetNat(dao.pendingWithdrawDebits, accountKey(voter)) == old(mapGetNat(dao.pendingWithdrawDebits, accountKey(voter)));
+    ensures forall<Text>(pure func (key : Text) : Bool =
+      mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
+      mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
+      mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
+      mapGetNat(dao.pendingWithdrawDebits, key) ==
+        old(mapGetNat(dao.pendingWithdrawDebits, key)));
   {
     if (not dao.hasProposal or id != dao.proposalId) {
       return #err(#proposalNotFound)
@@ -943,7 +1067,7 @@ module {
     if (dao.proposalStatus != 0) {
       return #err(#proposalNotOpen)
     };
-    let weight = activeStake(dao, voter);
+    let weight = mapGetNat(dao.activeStake, accountKey(voter));
     if (weight == 0) {
       return #err(#noVotingPower)
     };
@@ -968,7 +1092,7 @@ module {
     })
   };
 
-  public func close(
+  private func closeImpl(
     dao : State,
     id : Nat
   ) : Types.Result<Types.CloseReceipt, Types.CloseError>
@@ -979,7 +1103,14 @@ module {
     ensures totalLiquid(dao) == old(totalLiquid(dao));
     ensures totalActiveStake(dao) == old(totalActiveStake(dao));
     ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
     ensures config(dao) == old(config(dao));
+    ensures forall<Text>(pure func (key : Text) : Bool =
+      mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
+      mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
+      mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
+      mapGetNat(dao.pendingWithdrawDebits, key) ==
+        old(mapGetNat(dao.pendingWithdrawDebits, key)));
   {
     if (not dao.hasProposal or id != dao.proposalId) {
       return #err(#proposalNotFound)
@@ -1005,7 +1136,7 @@ module {
     })
   };
 
-  public func execute(
+  private func executeImpl(
     dao : State,
     id : Nat
   ) : Types.Result<Types.ExecuteReceipt, Types.ExecuteError>
@@ -1016,6 +1147,13 @@ module {
     ensures totalLiquid(dao) == old(totalLiquid(dao));
     ensures totalActiveStake(dao) == old(totalActiveStake(dao));
     ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
+    ensures forall<Text>(pure func (key : Text) : Bool =
+      mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
+      mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
+      mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
+      mapGetNat(dao.pendingWithdrawDebits, key) ==
+        old(mapGetNat(dao.pendingWithdrawDebits, key)));
   {
     if (not dao.hasProposal or id != dao.proposalId) {
       return #err(#proposalNotFound)
@@ -1042,5 +1180,286 @@ module {
       id = id;
       config = nextConfig
     })
+  };
+
+  public func finishDepositOk(
+    dao : State,
+    user : Principal,
+    ledger : Principal,
+    amount : Nat,
+    txIndex : Nat
+  ) : Types.Result<Types.DepositReceipt, Types.DepositError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao)) + amount;
+    ensures totalLiquid(dao) == old(totalLiquid(dao)) + amount;
+    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
+    ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
+    ensures config(dao) == old(config(dao));
+    ensures governanceLedger(dao) == old(governanceLedger(dao));
+    ensures switch (result) {
+      case (#ok receipt) {
+        receipt.ledger == ledger and receipt.amount == amount and receipt.txIndex == txIndex
+      };
+      case (#err(_)) { false }
+    };
+  {
+    finishDepositOkImpl(dao, user, ledger, amount, txIndex)
+  };
+
+  public func finishDepositErr(
+    dao : State,
+    user : Principal,
+    err : ICRCLedger.TransferFromError
+  ) : Types.Result<Types.DepositReceipt, Types.DepositError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures model(dao) == old(model(dao));
+    ensures switch (result) {
+      case (#ok(_)) { false };
+      case (#err(_)) { true }
+    };
+  {
+    finishDepositErrImpl(dao, user, err)
+  };
+
+  public func finishDepositReject(
+    dao : State,
+    user : Principal,
+    reject : Types.LedgerReject
+  ) : Types.Result<Types.DepositReceipt, Types.DepositError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures model(dao) == old(model(dao));
+    ensures switch (result) {
+      case (#ok(_)) { false };
+      case (#err(_)) { true }
+    };
+  {
+    finishDepositRejectImpl(dao, user, reject)
+  };
+
+  public func beginWithdraw(
+    dao : State,
+    user : Principal,
+    ledger : Principal,
+    amount : Nat,
+    fee : Nat
+  ) : Types.Result<Types.WithdrawStarted, Types.WithdrawError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
+    ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures config(dao) == old(config(dao));
+    ensures governanceLedger(dao) == old(governanceLedger(dao));
+    ensures switch (result) {
+      case (#ok started) {
+        started.ledger == ledger and
+        started.amount == amount and
+        started.fee == fee and
+        started.debitAmount == amount + fee and
+        totalLiquid(dao) + started.debitAmount == old(totalLiquid(dao)) and
+        totalPendingWithdraw(dao) ==
+          old(totalPendingWithdraw(dao)) + started.debitAmount
+      };
+      case (#err(_)) {
+        totalLiquid(dao) == old(totalLiquid(dao)) and
+        totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao))
+      }
+    };
+  {
+    beginWithdrawImpl(dao, user, ledger, amount, fee)
+  };
+
+  public func finishWithdrawOk(
+    dao : State,
+    user : Principal,
+    started : Types.WithdrawStarted,
+    txIndex : Nat
+  ) : Types.Result<Types.WithdrawReceipt, Types.WithdrawError>
+    requires true;
+    requires started.debitAmount == started.amount + started.fee;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalLiquid(dao) == old(totalLiquid(dao));
+    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
+    ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures config(dao) == old(config(dao));
+    ensures governanceLedger(dao) == old(governanceLedger(dao));
+    ensures switch (result) {
+      case (#ok receipt) {
+        receipt.ledger == started.ledger and
+        receipt.amount == started.amount and
+        receipt.fee == started.fee and
+        receipt.debitAmount == started.debitAmount and
+        receipt.debitAmount == receipt.amount + receipt.fee and
+        receipt.txIndex == txIndex
+      };
+      case (#err(_)) { true }
+    };
+  {
+    finishWithdrawOkImpl(dao, user, started, txIndex)
+  };
+
+  public func finishWithdrawErr(
+    dao : State,
+    user : Principal,
+    started : Types.WithdrawStarted,
+    err : ICRCLedger.TransferError
+  ) : Types.Result<Types.WithdrawReceipt, Types.WithdrawError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
+    ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures config(dao) == old(config(dao));
+    ensures governanceLedger(dao) == old(governanceLedger(dao));
+    ensures switch (result) {
+      case (#ok(_)) { false };
+      case (#err(_)) { true }
+    };
+  {
+    finishWithdrawErrImpl(dao, user, started, err)
+  };
+
+  public func finishWithdrawReject(
+    dao : State,
+    user : Principal,
+    started : Types.WithdrawStarted,
+    reject : Types.LedgerReject
+  ) : Types.Result<Types.WithdrawReceipt, Types.WithdrawError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
+    ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures config(dao) == old(config(dao));
+    ensures governanceLedger(dao) == old(governanceLedger(dao));
+    ensures switch (result) {
+      case (#ok(_)) { false };
+      case (#err(_)) { true }
+    };
+  {
+    finishWithdrawRejectImpl(dao, user, started, reject)
+  };
+
+  public func stake(
+    dao : State,
+    user : Principal,
+    amount : Nat
+  ) : Types.Result<Types.StakeReceipt, Types.StakeError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures config(dao) == old(config(dao));
+  {
+    stakeImpl(dao, user, amount)
+  };
+
+  public func requestUnstake(
+    dao : State,
+    user : Principal,
+    amount : Nat,
+    now : Int
+  ) : Types.Result<Types.RequestUnstakeReceipt, Types.UnstakeError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures config(dao) == old(config(dao));
+  {
+    requestUnstakeImpl(dao, user, amount, now)
+  };
+
+  public func claimUnstaked(
+    dao : State,
+    user : Principal,
+    now : Int
+  ) : Types.Result<Types.ClaimUnstakeReceipt, Types.UnstakeError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures config(dao) == old(config(dao));
+  {
+    claimUnstakedImpl(dao, user, now)
+  };
+
+  public func createProposal(
+    dao : State,
+    proposer : Principal,
+    action : Types.ConfigAction
+  ) : Types.Result<Types.ProposalReceipt, Types.ProposalError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures totalLiquid(dao) == old(totalLiquid(dao));
+    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
+    ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
+  {
+    createProposalImpl(dao, proposer, action)
+  };
+
+  public func vote(
+    dao : State,
+    voter : Principal,
+    id : Nat,
+    choice : Types.VoteChoice
+  ) : Types.Result<Types.VoteReceipt, Types.VoteError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures totalLiquid(dao) == old(totalLiquid(dao));
+    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
+    ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
+    ensures config(dao) == old(config(dao));
+  {
+    voteImpl(dao, voter, id, choice)
+  };
+
+  public func close(
+    dao : State,
+    id : Nat
+  ) : Types.Result<Types.CloseReceipt, Types.CloseError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures totalLiquid(dao) == old(totalLiquid(dao));
+    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
+    ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
+    ensures config(dao) == old(config(dao));
+  {
+    closeImpl(dao, id)
+  };
+
+  public func execute(
+    dao : State,
+    id : Nat
+  ) : Types.Result<Types.ExecuteReceipt, Types.ExecuteError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures totalLiquid(dao) == old(totalLiquid(dao));
+    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
+    ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
+  {
+    executeImpl(dao, id)
   };
 }

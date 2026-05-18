@@ -107,12 +107,28 @@ The verified contracts prove:
 - withdrawal begin moves `amount + fee` from liquid into pending withdrawal
 - withdrawal success settles the pending debit and reduces accounted tokens
 - withdrawal error/reject restores the pending debit to liquid
+- withdrawal never decreases active stake or pending unstake, so locked voting
+  tokens cannot be withdrawn around the 7-day lock
+- after a withdrawal has been debited into pending state, a ledger error or
+  reject restores the exact pending debit to the caller's liquid balance
 - staking preserves the local accounted token total
+- successful staking decreases the caller's liquid balance by exactly `amount`
+  and increases active stake by exactly `amount`
 - unstake requests remove active voting power and move tokens into pending
   unstake
+- successful unstake requests set the unlock time to exactly `now + 7 days`
 - claims move matured pending unstake back to liquid
+- successful claims move exactly the matured pending-unstake amount into liquid
+  and clear the caller's pending unstake
 - voting and proposal lifecycle transitions preserve token accounting
+- proposal creation, voting, closing, and execution preserve every account key's
+  liquid, active-stake, pending-unstake, and pending-withdraw amounts
 - config thresholds are absolute values and are not bounded by current deposits
+
+`Dao.sr9` keeps rich per-user contracts on private implementation functions and
+uses public wrappers with import-safe aggregate contracts. This avoids a current
+Sector9 limitation where external modules cannot unfold mutable maps inside an
+opaque DAO state through public pure accessors.
 
 The persistent actor proves `Dao.supplyBalanced(dao)` and `Dao.configValid(dao)`
 across public methods and across ledger awaits.

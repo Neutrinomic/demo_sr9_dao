@@ -107,11 +107,11 @@ persistent actor class DaoActorDemo(
               Dao.finishDepositOk(dao, caller, ledger, amount, txIndex)
             };
             case (#Err err) {
-              Dao.finishDepositErr(dao, err)
+              Dao.finishDepositErr(dao, caller, err)
             }
           }
         } catch (_) {
-          Dao.finishDepositReject(dao, ledgerReject())
+          Dao.finishDepositReject(dao, caller, ledgerReject())
         }
       }
     }
