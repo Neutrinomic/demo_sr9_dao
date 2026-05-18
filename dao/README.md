@@ -38,7 +38,12 @@ Withdrawals use ICRC-1:
 Voting power still requires staking:
 
 - `stake(amount)` moves liquid deposited tokens into active stake.
-- Active stake is voting power immediately.
+- Staked tokens cannot vote immediately. `stake(amount)` sets the caller's
+  `votingPowerUnlockAt` to `now + 7 days`.
+- `create_proposal(action)` and `vote(id, choice)` both require the caller's
+  active stake lock to be mature.
+- `voting_power(user)` returns active stake; `stake_info(user)` includes
+  `votingPowerUnlockAt` so callers can tell when active stake becomes eligible.
 - `request_unstake(amount)` removes voting power immediately and starts the
   7-day cooldown.
 - `claim_unstaked()` moves matured pending unstake back to liquid balance.
@@ -103,8 +108,12 @@ The verified contracts prove:
 
 - initialization starts with zero local token allocation
 - successful deposits increase local accounted tokens and liquid balance
+- deposit ledger arguments are constructed so `icrc2_transfer_from` pulls from
+  the caller's default account into the DAO canister's default account
 - deposit ledger errors/rejects preserve local accounting
 - withdrawal begin moves `amount + fee` from liquid into pending withdrawal
+- withdrawal ledger arguments are constructed so `icrc1_transfer` sends to the
+  caller's default account, with no source subaccount
 - withdrawal success settles the pending debit and reduces accounted tokens
 - withdrawal error/reject restores the pending debit to liquid
 - withdrawal never decreases active stake or pending unstake, so locked voting
@@ -114,6 +123,10 @@ The verified contracts prove:
 - staking preserves the local accounted token total
 - successful staking decreases the caller's liquid balance by exactly `amount`
   and increases active stake by exactly `amount`
+- successful staking sets the caller's voting unlock time to exactly
+  `now + 7 days`
+- successful proposal creation and successful voting prove
+  `now >= votingPowerUnlockAt`
 - unstake requests remove active voting power and move tokens into pending
   unstake
 - successful unstake requests set the unlock time to exactly `now + 7 days`
@@ -121,6 +134,13 @@ The verified contracts prove:
 - successful claims move exactly the matured pending-unstake amount into liquid
   and clear the caller's pending unstake
 - voting and proposal lifecycle transitions preserve token accounting
+- successful voting proves the voter had not already voted on that proposal,
+  marks that voter/proposal pair as voted, and changes proposal totals by
+  exactly the receipt weight once
+- successful deposits, withdrawal staging/success, staking, unstaking,
+  claiming, and the shared withdrawal-failure restore step preserve every other
+  account key's liquid, active-stake, voting-lock, pending-unstake, and
+  pending-withdraw state
 - proposal creation, voting, closing, and execution preserve every account key's
   liquid, active-stake, pending-unstake, and pending-withdraw amounts
 - config thresholds are absolute values and are not bounded by current deposits
@@ -155,9 +175,9 @@ Verification succeeded with:
 
 ```bash
 SECTOR9_RUN_ARGS='-e XDG_CACHE_HOME=/tmp/sector9' ./sr9 --verify --deterministic --cores 1 --verify-timeout-ms 600000 dao/lib/Types.sr9
-SECTOR9_RUN_ARGS='-e XDG_CACHE_HOME=/tmp/sector9' ./sr9 --verify --deterministic --cores 1 --verify-timeout-ms 600000 dao/lib/Dao.sr9
-SECTOR9_RUN_ARGS='-e XDG_CACHE_HOME=/tmp/sector9' ./sr9 --verify --deterministic --cores 1 --verify-timeout-ms 600000 dao/proofs/DaoObservers.sr9
-SECTOR9_RUN_ARGS='-e XDG_CACHE_HOME=/tmp/sector9' ./sr9 --verify --deterministic --cores 1 --verify-timeout-ms 900000 dao/DaoActorDemo.sr9
+SECTOR9_RUN_ARGS='-e XDG_CACHE_HOME=/tmp/sector9' ./sr9 --verify --deterministic --cores 2 --verify-timeout-ms 1200000 dao/lib/Dao.sr9
+SECTOR9_RUN_ARGS='-e XDG_CACHE_HOME=/tmp/sector9' ./sr9 --verify --deterministic --cores 1 --verify-timeout-ms 700000 dao/proofs/DaoObservers.sr9
+SECTOR9_RUN_ARGS='-e XDG_CACHE_HOME=/tmp/sector9' ./sr9 --verify --deterministic --cores 2 --verify-timeout-ms 1200000 dao/DaoActorDemo.sr9
 ```
 
 Source scan:
@@ -173,6 +193,7 @@ No trusted Sector9 source was found.
 - One governance ledger per DAO instance.
 - Default accounts only; no subaccount selection.
 - No token transfers between DAO users.
+- Adding more stake resets the caller's active-stake voting unlock time.
 - No abstain vote and no vote replacement.
 - No timed proposal window; proposals are closed explicitly.
 - No proposal archive beyond the current proposal slot.
