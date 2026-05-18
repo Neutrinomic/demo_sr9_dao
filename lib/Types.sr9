@@ -142,7 +142,9 @@ module {
     #insufficientLiquidBalance;
     #ledgerFeeRejected : LedgerReject;
     #ledgerTransferErr : ICRCLedger.TransferError;
-    #ledgerTransferRejected : LedgerReject
+    #ledgerTransferRejected : LedgerReject;
+    #withdrawReconciliationRequired : ICRCLedger.TransferError;
+    #withdrawReconciliationRejected : LedgerReject
   };
 
   public type StakeError = {

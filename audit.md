@@ -13,7 +13,7 @@ The review intentionally ignores formal verification claims and focuses on produ
 
 ## TODO
 
-- [ ] **High: handle ambiguous withdrawal ledger results without refunding.**
+- [x] **High: handle ambiguous withdrawal ledger results without refunding.**
   `DaoActorDemo.sr9:179`, `lib/Dao.sr9:783`, `lib/Dao.sr9:851`.
   Any `icrc1_transfer` `#Err` currently restores the pending debit to liquid. Add durable withdrawal operation IDs, memo/timestamp correlation, and a reconciliation-needed state for duplicate or unknown outcomes. Refund only errors that are guaranteed not to have executed.
 

@@ -37,7 +37,7 @@ module {
     Dao.beginWithdraw(dao, user, ledger, amount, fee, createdAtTime)
   };
 
-  public func withdrawRejectRestoresDebit(
+  public func withdrawRejectPreservesAccounting(
     dao : Dao.State,
     user : Principal,
     ledger : Principal,

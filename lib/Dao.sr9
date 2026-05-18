@@ -339,6 +339,19 @@ module {
     }
   };
 
+  private pure func transferErrorRefundable(err : ICRCLedger.TransferError) : Bool
+    requires true;
+  {
+    switch (err) {
+      case (#BadBurn(_)) { true };
+      case (#BadFee(_)) { true };
+      case (#CreatedInFuture(_)) { true };
+      case (#TooOld) { true };
+      case (#InsufficientFunds(_)) { true };
+      case (_) { false }
+    }
+  };
+
   public func init(
     ledgerPrincipal : Principal,
     quorumVotes : Nat,
@@ -891,14 +904,18 @@ module {
       };
       case (_) {}
     };
-    finishWithdrawFailure(dao, user, started);
-    #err(#ledgerTransferErr err)
+    if (transferErrorRefundable(err)) {
+      finishWithdrawFailure(dao, user, started);
+      #err(#ledgerTransferErr err)
+    } else {
+      #err(#withdrawReconciliationRequired err)
+    }
   };
 
   private func finishWithdrawRejectImpl(
     dao : State,
     user : Principal,
-    started : Types.WithdrawStarted,
+    _started : Types.WithdrawStarted,
     reject : Types.LedgerReject
   ) : Types.Result<Types.WithdrawReceipt, Types.WithdrawError>
     requires true;
@@ -911,22 +928,12 @@ module {
     ensures governanceLedger(dao) == old(governanceLedger(dao));
     ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
     ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
-    ensures if (
-      old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) > 0 and
-      old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) == started.debitAmount and
-      old(totalPendingWithdraw(dao)) >= old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user)))
-    ) {
-      mapGetNat(dao.liquid, accountKey(user)) ==
-        old(mapGetNat(dao.liquid, accountKey(user))) + old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) and
-      mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == 0
-    } else { true };
     ensures switch (result) {
       case (#ok(_)) { false };
       case (#err(_)) { true }
     };
   {
-    finishWithdrawFailure(dao, user, started);
-    #err(#ledgerTransferRejected reject)
+    #err(#withdrawReconciliationRejected reject)
   };
 
   private func finishWithdrawFailure(

@@ -37,7 +37,10 @@ Withdrawals use ICRC-1:
 - On success, the pending debit is finalized.
 - A duplicate ledger response is treated as success using the duplicate
   transaction index.
-- On ledger error or reject, the full pending debit is restored to liquid.
+- Ledger errors that prove the transfer did not execute restore the full
+  pending debit to liquid.
+- Ambiguous ledger errors or call rejects leave the debit pending and return a
+  reconciliation-required error instead of refunding locally.
 - A user can have only one pending withdrawal at a time.
 
 Voting power still requires staking:
@@ -127,11 +130,11 @@ The verified contracts prove:
   caller's default account, with no source subaccount, and includes the pending
   withdrawal memo and `created_at_time`
 - withdrawal success settles the pending debit and reduces accounted tokens
-- withdrawal error/reject restores the pending debit to liquid
+- deterministic withdrawal errors restore the pending debit to liquid
+- ambiguous withdrawal errors/rejects preserve the pending debit instead of
+  refunding locally
 - withdrawal never decreases active stake or pending unstake, so locked voting
   tokens cannot be withdrawn around the 7-day lock
-- after a withdrawal has been debited into pending state, a ledger error or
-  reject restores the exact pending debit to the caller's liquid balance
 - staking preserves the local accounted token total
 - successful staking decreases the caller's liquid balance by exactly `amount`
   and increases active stake by exactly `amount`
