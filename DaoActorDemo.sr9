@@ -1,6 +1,9 @@
 import Dao "./lib/Dao";
 import ICRCLedger "mo:core/pattern/ICRCLedger";
+import NatCore "mo:core/Nat";
+import Prim "mo:⛔";
 import Runtime "mo:core/Runtime";
+import Text "mo:core/Text";
 import Time "mo:core/Time";
 import Types "./lib/Types";
 
@@ -42,13 +45,47 @@ persistent actor class DaoActorDemo(
   invariant Dao.supplyBalanced(dao);
   invariant Dao.configValid(dao);
 
+  private let NAT64_MAX : Nat = 18_446_744_073_709_551_615;
+
   private pure func ledgerReject() : Types.LedgerReject {
     { message = "ledger call rejected" }
   };
 
+  private func ledgerCreatedAtTime() : Nat64
+    requires true;
+    ensures true;
+  {
+    Prim.time()
+  };
+
+  private func ledgerCreatedAtTimeNat(time : Nat64) : Nat
+    reads NAT64_MAX
+    requires true;
+    ensures result <= NAT64_MAX;
+  {
+    Prim.nat64ToNat(time)
+  };
+
+  private func natToLedgerCreatedAtTime(time : Nat) : Nat64
+    reads NAT64_MAX
+    requires time <= NAT64_MAX;
+    ensures true;
+  {
+    Prim.natToNat64(time)
+  };
+
+  private func operationMemo(kind : Text, operationId : Nat) : Blob
+    requires true;
+    ensures true;
+  {
+    Text.encodeUtf8("dao:" # kind # ":" # NatCore.toText(operationId))
+  };
+
   private func depositTransferFromArgs(
     caller : Principal,
-    amount : Nat
+    amount : Nat,
+    operationId : Nat,
+    createdAtTime : Nat64
   ) : ICRCLedger.TransferFromArgs
     requires true;
     ensures result.to.owner == Runtime.selfId();
@@ -57,8 +94,8 @@ persistent actor class DaoActorDemo(
     ensures result.from.subaccount == null;
     ensures result.spender_subaccount == null;
     ensures result.fee == null;
-    ensures result.memo == null;
-    ensures result.created_at_time == null;
+    ensures switch (result.memo) { case (?_) { true }; case null { false } };
+    ensures result.created_at_time == ?createdAtTime;
     ensures result.amount == amount;
   {
     {
@@ -66,8 +103,8 @@ persistent actor class DaoActorDemo(
       fee = null;
       spender_subaccount = null;
       from = { owner = caller; subaccount = null };
-      memo = null;
-      created_at_time = null;
+      memo = ?operationMemo("deposit", operationId);
+      created_at_time = ?createdAtTime;
       amount = amount
     }
   };
@@ -76,21 +113,22 @@ persistent actor class DaoActorDemo(
     caller : Principal,
     started : Types.WithdrawStarted
   ) : ICRCLedger.TransferArg
-    requires true;
+    reads NAT64_MAX
+    requires started.createdAtTime <= NAT64_MAX;
     ensures result.to.owner == caller;
     ensures result.to.subaccount == null;
     ensures result.fee == ?started.fee;
-    ensures result.memo == null;
+    ensures switch (result.memo) { case (?_) { true }; case null { false } };
     ensures result.from_subaccount == null;
-    ensures result.created_at_time == null;
+    ensures switch (result.created_at_time) { case (?_) { true }; case null { false } };
     ensures result.amount == started.amount;
   {
     {
       to = { owner = caller; subaccount = null };
       fee = ?started.fee;
-      memo = null;
+      memo = ?operationMemo("withdraw", started.operationId);
       from_subaccount = null;
-      created_at_time = null;
+      created_at_time = ?natToLedgerCreatedAtTime(started.createdAtTime);
       amount = started.amount
     }
   };
@@ -139,9 +177,11 @@ persistent actor class DaoActorDemo(
     switch (Dao.beginDeposit(dao, amount)) {
       case (#err err) { #err(err) };
       case (#ok _) {
+        let createdAtTime = ledgerCreatedAtTime();
+        let operationId = ledgerCreatedAtTimeNat(createdAtTime);
         let ledger = governanceLedger;
         let remote = ICRCLedger.fromPrincipal(ledger);
-        let args = depositTransferFromArgs(caller, amount);
+        let args = depositTransferFromArgs(caller, amount, operationId, createdAtTime);
         try {
           let result = await remote.icrc2_transfer_from(args);
           switch (result) {
@@ -149,7 +189,14 @@ persistent actor class DaoActorDemo(
               Dao.finishDepositOk(dao, caller, ledger, amount, txIndex)
             };
             case (#Err err) {
-              Dao.finishDepositErr(dao, caller, err)
+              switch (err) {
+                case (#Duplicate duplicate) {
+                  Dao.finishDepositOk(dao, caller, ledger, amount, duplicate.duplicate_of)
+                };
+                case (_) {
+                  Dao.finishDepositErr(dao, caller, err)
+                }
+              }
             }
           }
         } catch (_) {
@@ -171,7 +218,9 @@ persistent actor class DaoActorDemo(
     let remote = ICRCLedger.fromPrincipal(ledger);
     try {
       let fee = await remote.icrc1_fee();
-      switch (Dao.beginWithdraw(dao, caller, ledger, amount, fee)) {
+      let ledgerTime = ledgerCreatedAtTime();
+      let createdAtTime = ledgerCreatedAtTimeNat(ledgerTime);
+      switch (Dao.beginWithdraw(dao, caller, ledger, amount, fee, createdAtTime)) {
         case (#err err) { #err(err) };
         case (#ok started) {
           assert started.debitAmount == started.amount + started.fee;

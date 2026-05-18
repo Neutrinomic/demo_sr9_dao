@@ -25,7 +25,8 @@ module {
     user : Principal,
     ledger : Principal,
     amount : Nat,
-    fee : Nat
+    fee : Nat,
+    createdAtTime : Nat
   ) : Types.Result<Types.WithdrawStarted, Types.WithdrawError>
     requires true;
     ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
@@ -33,7 +34,7 @@ module {
     ensures Dao.totalPendingUnstake(dao) == old(Dao.totalPendingUnstake(dao));
     ensures Dao.config(dao) == old(Dao.config(dao));
   {
-    Dao.beginWithdraw(dao, user, ledger, amount, fee)
+    Dao.beginWithdraw(dao, user, ledger, amount, fee, createdAtTime)
   };
 
   public func withdrawRejectRestoresDebit(
@@ -41,7 +42,8 @@ module {
     user : Principal,
     ledger : Principal,
     amount : Nat,
-    fee : Nat
+    fee : Nat,
+    createdAtTime : Nat
   ) : Types.Result<Types.WithdrawReceipt, Types.WithdrawError>
     requires true;
     ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
@@ -49,7 +51,7 @@ module {
     ensures Dao.totalPendingUnstake(dao) == old(Dao.totalPendingUnstake(dao));
     ensures Dao.config(dao) == old(Dao.config(dao));
   {
-    switch (Dao.beginWithdraw(dao, user, ledger, amount, fee)) {
+    switch (Dao.beginWithdraw(dao, user, ledger, amount, fee, createdAtTime)) {
       case (#err err) { #err(err) };
       case (#ok started) {
         Dao.finishWithdrawReject(dao, user, started, { message = "observer reject" })
@@ -63,6 +65,7 @@ module {
     ledger : Principal,
     amount : Nat,
     fee : Nat,
+    createdAtTime : Nat,
     txIndex : Nat
   ) : Types.Result<Types.WithdrawReceipt, Types.WithdrawError>
     requires true;
@@ -70,7 +73,7 @@ module {
     ensures Dao.totalPendingUnstake(dao) == old(Dao.totalPendingUnstake(dao));
     ensures Dao.config(dao) == old(Dao.config(dao));
   {
-    switch (Dao.beginWithdraw(dao, user, ledger, amount, fee)) {
+    switch (Dao.beginWithdraw(dao, user, ledger, amount, fee, createdAtTime)) {
       case (#err err) { #err(err) };
       case (#ok started) {
         Dao.finishWithdrawOk(dao, user, started, txIndex)

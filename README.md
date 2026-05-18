@@ -17,10 +17,13 @@ Deposits use ICRC-2:
 
 - The user first approves the DAO canister on the `governanceLedger`.
 - `deposit(amount)` calls `icrc2_transfer_from`.
+- Each deposit call includes a DAO operation memo and `created_at_time`.
 - Tokens are pulled from the caller's default account into the DAO canister's
   default account.
 - The caller's DAO liquid balance is credited only after the ledger returns
   `#Ok(txIndex)`.
+- A duplicate ledger response is treated as success using the duplicate
+  transaction index.
 - Ledger errors or rejects do not credit local DAO balance.
 
 Withdrawals use ICRC-1:
@@ -28,8 +31,12 @@ Withdrawals use ICRC-1:
 - `withdraw(amount)` can spend only liquid DAO balance.
 - The actor queries `icrc1_fee()`.
 - The DAO debits `amount + fee` into a pending withdrawal before the transfer.
+- The in-flight withdrawal call includes a DAO operation memo and
+  `created_at_time`.
 - The actor calls `icrc1_transfer` to the caller's default account.
 - On success, the pending debit is finalized.
+- A duplicate ledger response is treated as success using the duplicate
+  transaction index.
 - On ledger error or reject, the full pending debit is restored to liquid.
 - A user can have only one pending withdrawal at a time.
 
@@ -112,11 +119,13 @@ The verified contracts prove:
 - initialization starts with zero local token allocation
 - successful deposits increase local accounted tokens and liquid balance
 - deposit ledger arguments are constructed so `icrc2_transfer_from` pulls from
-  the caller's default account into the DAO canister's default account
+  the caller's default account into the DAO canister's default account and
+  includes a non-null memo and `created_at_time`
 - deposit ledger errors/rejects preserve local accounting
 - withdrawal begin moves `amount + fee` from liquid into pending withdrawal
 - withdrawal ledger arguments are constructed so `icrc1_transfer` sends to the
-  caller's default account, with no source subaccount
+  caller's default account, with no source subaccount, and includes the pending
+  withdrawal memo and `created_at_time`
 - withdrawal success settles the pending debit and reduces accounted tokens
 - withdrawal error/reject restores the pending debit to liquid
 - withdrawal never decreases active stake or pending unstake, so locked voting

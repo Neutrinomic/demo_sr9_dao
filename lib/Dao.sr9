@@ -715,7 +715,8 @@ module {
     user : Principal,
     ledger : Principal,
     amount : Nat,
-    fee : Nat
+    fee : Nat,
+    createdAtTime : Nat
   ) : Types.Result<Types.WithdrawStarted, Types.WithdrawError>
     requires true;
     ensures supplyBalanced(dao);
@@ -740,10 +741,12 @@ module {
       ));
     ensures switch (result) {
       case (#ok started) {
+        started.operationId == createdAtTime and
         started.ledger == ledger and
         started.amount == amount and
         started.fee == fee and
         started.debitAmount == amount + fee and
+        started.createdAtTime == createdAtTime and
         mapGetNat(dao.liquid, accountKey(user)) + started.debitAmount == old(mapGetNat(dao.liquid, accountKey(user))) and
         mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == started.debitAmount and
         totalLiquid(dao) + started.debitAmount == old(totalLiquid(dao)) and
@@ -770,6 +773,7 @@ module {
     if (liquidBefore < debitAmount or dao.totalLiquid < debitAmount) {
       return #err(#insufficientLiquidBalance)
     };
+    let operationId = createdAtTime;
     assert BMap.orderedBy<Text, Nat>(dao.liquid, Text.compare);
     dao.liquid := putNat(dao.liquid, key, liquidBefore - debitAmount);
     assert BMap.orderedBy<Text, Nat>(dao.pendingWithdrawAmounts, Text.compare);
@@ -781,10 +785,12 @@ module {
     dao.totalLiquid -= debitAmount;
     dao.totalPendingWithdraw += debitAmount;
     #ok({
+      operationId = operationId;
       ledger = ledger;
       amount = amount;
       fee = fee;
-      debitAmount = debitAmount
+      debitAmount = debitAmount;
+      createdAtTime = createdAtTime
     })
   };
 
@@ -818,6 +824,7 @@ module {
       ));
     ensures switch (result) {
       case (#ok receipt) {
+        receipt.operationId == started.operationId and
         receipt.ledger == started.ledger and
         receipt.amount == started.amount and
         receipt.fee == started.fee and
@@ -847,6 +854,7 @@ module {
     dao.totalPendingWithdraw -= pendingDebit;
     dao.totalSupply -= pendingDebit;
     #ok({
+      operationId = started.operationId;
       ledger = started.ledger;
       amount = started.amount;
       fee = started.fee;
@@ -863,29 +871,26 @@ module {
     err : ICRCLedger.TransferError
   ) : Types.Result<Types.WithdrawReceipt, Types.WithdrawError>
     requires true;
+    requires started.debitAmount == started.amount + started.fee;
     ensures supplyBalanced(dao);
     ensures configValid(dao);
-    ensures totalSupply(dao) == old(totalSupply(dao));
     ensures totalActiveStake(dao) == old(totalActiveStake(dao));
     ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
     ensures config(dao) == old(config(dao));
     ensures governanceLedger(dao) == old(governanceLedger(dao));
     ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
     ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
-    ensures if (
-      old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) > 0 and
-      old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) == started.debitAmount and
-      old(totalPendingWithdraw(dao)) >= old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user)))
-    ) {
-      mapGetNat(dao.liquid, accountKey(user)) ==
-        old(mapGetNat(dao.liquid, accountKey(user))) + old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) and
-      mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == 0
-    } else { true };
     ensures switch (result) {
-      case (#ok(_)) { false };
+      case (#ok(_)) { true };
       case (#err(_)) { true }
     };
   {
+    switch (err) {
+      case (#Duplicate duplicate) {
+        return finishWithdrawOkImpl(dao, user, started, duplicate.duplicate_of)
+      };
+      case (_) {}
+    };
     finishWithdrawFailure(dao, user, started);
     #err(#ledgerTransferErr err)
   };
@@ -1529,7 +1534,8 @@ module {
     user : Principal,
     ledger : Principal,
     amount : Nat,
-    fee : Nat
+    fee : Nat,
+    createdAtTime : Nat
   ) : Types.Result<Types.WithdrawStarted, Types.WithdrawError>
     requires true;
     ensures supplyBalanced(dao);
@@ -1541,10 +1547,12 @@ module {
     ensures governanceLedger(dao) == old(governanceLedger(dao));
     ensures switch (result) {
       case (#ok started) {
+        started.operationId == createdAtTime and
         started.ledger == ledger and
         started.amount == amount and
         started.fee == fee and
         started.debitAmount == amount + fee and
+        started.createdAtTime == createdAtTime and
         totalLiquid(dao) + started.debitAmount == old(totalLiquid(dao)) and
         totalPendingWithdraw(dao) ==
           old(totalPendingWithdraw(dao)) + started.debitAmount
@@ -1555,7 +1563,7 @@ module {
       }
     };
   {
-    beginWithdrawImpl(dao, user, ledger, amount, fee)
+    beginWithdrawImpl(dao, user, ledger, amount, fee, createdAtTime)
   };
 
   public func finishWithdrawOk(
@@ -1575,6 +1583,7 @@ module {
     ensures governanceLedger(dao) == old(governanceLedger(dao));
     ensures switch (result) {
       case (#ok receipt) {
+        receipt.operationId == started.operationId and
         receipt.ledger == started.ledger and
         receipt.amount == started.amount and
         receipt.fee == started.fee and
@@ -1595,15 +1604,15 @@ module {
     err : ICRCLedger.TransferError
   ) : Types.Result<Types.WithdrawReceipt, Types.WithdrawError>
     requires true;
+    requires started.debitAmount == started.amount + started.fee;
     ensures supplyBalanced(dao);
     ensures configValid(dao);
-    ensures totalSupply(dao) == old(totalSupply(dao));
     ensures totalActiveStake(dao) == old(totalActiveStake(dao));
     ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
     ensures config(dao) == old(config(dao));
     ensures governanceLedger(dao) == old(governanceLedger(dao));
     ensures switch (result) {
-      case (#ok(_)) { false };
+      case (#ok(_)) { true };
       case (#err(_)) { true }
     };
   {

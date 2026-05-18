@@ -33,9 +33,9 @@ The review intentionally ignores formal verification claims and focuses on produ
   `lib/Dao.sr9:107`, `lib/Dao.sr9:475`, `lib/Dao.sr9:1357`.
   `configValid` and `actionValid` always return true. Validate constructor config and governance config actions. Reject zero, trivializing, or permanently unreachable quorum and proposal-threshold settings.
 
-- [ ] **Medium: add idempotency and correlation data to ledger calls.**
+- [x] **Medium: add idempotency and correlation data to ledger calls.**
   `DaoActorDemo.sr9:60`, `DaoActorDemo.sr9:61`, `DaoActorDemo.sr9:83`, `DaoActorDemo.sr9:85`.
-  Deposits and withdrawals use `memo = null` and `created_at_time = null`. Create per-operation IDs, persist them where needed, include them in memo/timestamp fields, and handle duplicate ledger responses explicitly.
+  Deposits and in-flight withdrawals now include per-operation memo/timestamp data, and duplicate ledger responses are handled explicitly. Durable pending-withdraw retry state remains covered by the withdrawal recovery TODO.
 
 - [ ] **Medium: prune or bound storage growth.**
   `lib/Dao.sr9:765`, `lib/Dao.sr9:1262`.
