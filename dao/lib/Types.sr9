@@ -1,0 +1,176 @@
+import ICRCLedger "mo:core/pattern/ICRCLedger";
+
+module {
+  public type Result<Ok, Err> = { #ok : Ok; #err : Err };
+
+  public type LedgerReject = {
+    message : Text
+  };
+
+  public type VoteChoice = { #yes; #no };
+  public type ProposalStatus = { #open; #passed; #failed; #executed };
+
+  public type Config = {
+    quorumVotes : Nat;
+    proposalThreshold : Nat
+  };
+
+  public type ConfigAction = {
+    #setQuorum : Nat;
+    #setProposalThreshold : Nat;
+    #setConfig : Config
+  };
+
+  public type Proposal = {
+    id : Nat;
+    proposer : Text;
+    action : ConfigAction;
+    yesVotes : Nat;
+    noVotes : Nat;
+    quorumVotes : Nat;
+    snapshotActiveStake : Nat;
+    status : ProposalStatus
+  };
+
+  public type StakeInfo = {
+    liquid : Nat;
+    activeStake : Nat;
+    pendingUnstake : Nat;
+    pendingWithdraw : Nat;
+    unlockAt : ?Int
+  };
+
+  public type PendingUnstake = {
+    amount : Nat;
+    unlockAt : Int
+  };
+
+  public type PendingWithdrawal = {
+    amount : Nat;
+    fee : Nat;
+    debitAmount : Nat
+  };
+
+  public type DepositReceipt = {
+    ledger : Principal;
+    amount : Nat;
+    txIndex : Nat;
+    liquidBalance : Nat
+  };
+
+  public type WithdrawReceipt = {
+    ledger : Principal;
+    amount : Nat;
+    fee : Nat;
+    debitAmount : Nat;
+    txIndex : Nat;
+    liquidBalance : Nat
+  };
+
+  public type WithdrawStarted = {
+    ledger : Principal;
+    amount : Nat;
+    fee : Nat;
+    debitAmount : Nat
+  };
+
+  public type StakeReceipt = {
+    amount : Nat;
+    liquidBalance : Nat;
+    activeStake : Nat
+  };
+
+  public type RequestUnstakeReceipt = {
+    amount : Nat;
+    activeStake : Nat;
+    pendingUnstake : Nat;
+    unlockAt : Int
+  };
+
+  public type ClaimUnstakeReceipt = {
+    amount : Nat;
+    liquidBalance : Nat
+  };
+
+  public type ProposalReceipt = {
+    id : Nat;
+    proposer : Principal;
+    quorumVotes : Nat;
+    snapshotActiveStake : Nat
+  };
+
+  public type VoteReceipt = {
+    id : Nat;
+    voter : Principal;
+    choice : VoteChoice;
+    weight : Nat;
+    yesVotes : Nat;
+    noVotes : Nat
+  };
+
+  public type CloseReceipt = {
+    id : Nat;
+    status : ProposalStatus;
+    yesVotes : Nat;
+    noVotes : Nat;
+    quorumVotes : Nat
+  };
+
+  public type ExecuteReceipt = {
+    id : Nat;
+    config : Config
+  };
+
+  public type DepositError = {
+    #zeroAmount;
+    #ledgerTransferFromErr : ICRCLedger.TransferFromError;
+    #ledgerTransferFromRejected : LedgerReject
+  };
+
+  public type WithdrawError = {
+    #zeroAmount;
+    #withdrawInProgress;
+    #insufficientLiquidBalance;
+    #ledgerFeeRejected : LedgerReject;
+    #ledgerTransferErr : ICRCLedger.TransferError;
+    #ledgerTransferRejected : LedgerReject
+  };
+
+  public type StakeError = {
+    #zeroAmount;
+    #insufficientLiquidBalance
+  };
+
+  public type UnstakeError = {
+    #zeroAmount;
+    #insufficientActiveStake;
+    #unstakeAlreadyPending;
+    #noPendingUnstake;
+    #cooldownActive : { now : Int; unlockAt : Int }
+  };
+
+  public type ProposalError = {
+    #proposalThresholdNotMet;
+    #invalidConfigAction;
+    #proposalInProgress
+  };
+
+  public type VoteError = {
+    #proposalNotFound;
+    #proposalNotOpen;
+    #noVotingPower;
+    #alreadyVoted
+  };
+
+  public type CloseError = {
+    #proposalNotFound;
+    #proposalNotOpen
+  };
+
+  public type ExecuteError = {
+    #proposalNotFound;
+    #proposalNotPassed;
+    #alreadyExecuted;
+    #invalidConfigAction
+  };
+}

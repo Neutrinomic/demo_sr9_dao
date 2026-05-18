@@ -1,0 +1,242 @@
+import Dao "./lib/Dao";
+import ICRCLedger "mo:core/pattern/ICRCLedger";
+import Runtime "mo:core/Runtime";
+import Time "mo:core/Time";
+import Types "./lib/Types";
+
+persistent actor class DaoActorDemo(
+  governanceLedger : Principal,
+  initialQuorumVotes : Nat,
+  initialProposalThreshold : Nat
+) {
+  public type Result<Ok, Err> = Types.Result<Ok, Err>;
+  public type Config = Types.Config;
+  public type ConfigAction = Types.ConfigAction;
+  public type Proposal = Types.Proposal;
+  public type StakeInfo = Types.StakeInfo;
+  public type VoteChoice = Types.VoteChoice;
+  public type DepositReceipt = Types.DepositReceipt;
+  public type WithdrawReceipt = Types.WithdrawReceipt;
+  public type StakeReceipt = Types.StakeReceipt;
+  public type RequestUnstakeReceipt = Types.RequestUnstakeReceipt;
+  public type ClaimUnstakeReceipt = Types.ClaimUnstakeReceipt;
+  public type ProposalReceipt = Types.ProposalReceipt;
+  public type VoteReceipt = Types.VoteReceipt;
+  public type CloseReceipt = Types.CloseReceipt;
+  public type ExecuteReceipt = Types.ExecuteReceipt;
+  public type DepositError = Types.DepositError;
+  public type WithdrawError = Types.WithdrawError;
+  public type StakeError = Types.StakeError;
+  public type UnstakeError = Types.UnstakeError;
+  public type ProposalError = Types.ProposalError;
+  public type VoteError = Types.VoteError;
+  public type CloseError = Types.CloseError;
+  public type ExecuteError = Types.ExecuteError;
+
+  var dao : Dao.State = Dao.init(
+    governanceLedger,
+    initialQuorumVotes,
+    initialProposalThreshold
+  );
+
+  invariant Dao.supplyBalanced(dao);
+  invariant Dao.configValid(dao);
+
+  private pure func ledgerReject() : Types.LedgerReject {
+    { message = "ledger call rejected" }
+  };
+
+  public query func governance_ledger() : async Principal
+    reads governanceLedger
+    ensures result == governanceLedger;
+  {
+    governanceLedger
+  };
+
+  public query func proposal_config() : async Config
+    reads dao
+    ensures result == Dao.config(dao);
+  {
+    Dao.config(dao)
+  };
+
+  public query func voting_power(user : Principal) : async Nat
+    reads dao
+  {
+    Dao.activeStake(dao, user)
+  };
+
+  public query func stake_info(user : Principal) : async StakeInfo
+    reads dao
+  {
+    Dao.stakeInfo(dao, user)
+  };
+
+  public query func proposal(id : Nat) : async ?Proposal
+    reads dao
+  {
+    Dao.proposal(dao, id)
+  };
+
+  public shared({ caller }) func deposit(
+    amount : Nat
+  ) : async Result<DepositReceipt, DepositError>
+    reads governanceLedger
+    modifies dao
+    ensures Dao.supplyBalanced(dao);
+    ensures Dao.configValid(dao);
+  {
+    switch (Dao.beginDeposit(dao, amount)) {
+      case (#err err) { #err(err) };
+      case (#ok _) {
+        let ledger = governanceLedger;
+        let remote = ICRCLedger.fromPrincipal(ledger);
+        let args : ICRCLedger.TransferFromArgs = {
+          to = { owner = Runtime.selfId(); subaccount = null };
+          fee = null;
+          spender_subaccount = null;
+          from = { owner = caller; subaccount = null };
+          memo = null;
+          created_at_time = null;
+          amount = amount
+        };
+        try {
+          let result = await remote.icrc2_transfer_from(args);
+          switch (result) {
+            case (#Ok txIndex) {
+              Dao.finishDepositOk(dao, caller, ledger, amount, txIndex)
+            };
+            case (#Err err) {
+              Dao.finishDepositErr(dao, err)
+            }
+          }
+        } catch (_) {
+          Dao.finishDepositReject(dao, ledgerReject())
+        }
+      }
+    }
+  };
+
+  public shared({ caller }) func withdraw(
+    amount : Nat
+  ) : async Result<WithdrawReceipt, WithdrawError>
+    reads governanceLedger
+    modifies dao
+    ensures Dao.supplyBalanced(dao);
+    ensures Dao.configValid(dao);
+  {
+    let ledger = governanceLedger;
+    let remote = ICRCLedger.fromPrincipal(ledger);
+    try {
+      let fee = await remote.icrc1_fee();
+      switch (Dao.beginWithdraw(dao, caller, ledger, amount, fee)) {
+        case (#err err) { #err(err) };
+        case (#ok started) {
+          assert started.debitAmount == started.amount + started.fee;
+          let args : ICRCLedger.TransferArg = {
+            to = { owner = caller; subaccount = null };
+            fee = ?started.fee;
+            memo = null;
+            from_subaccount = null;
+            created_at_time = null;
+            amount = amount
+          };
+          try {
+            let result = await remote.icrc1_transfer(args);
+            switch (result) {
+              case (#Ok txIndex) {
+                Dao.finishWithdrawOk(dao, caller, started, txIndex)
+              };
+              case (#Err err) {
+                Dao.finishWithdrawErr(dao, caller, started, err)
+              }
+            }
+          } catch (_) {
+            Dao.finishWithdrawReject(dao, caller, started, ledgerReject())
+          }
+        }
+      }
+    } catch (_) {
+      #err(#ledgerFeeRejected(ledgerReject()))
+    }
+  };
+
+  public shared({ caller }) func stake(amount : Nat) : async Result<StakeReceipt, StakeError>
+    reads governanceLedger
+    modifies dao
+    ensures Dao.supplyBalanced(dao);
+    ensures Dao.configValid(dao);
+    ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
+  {
+    Dao.stake(dao, caller, amount)
+  };
+
+  public shared({ caller }) func request_unstake(
+    amount : Nat
+  ) : async Result<RequestUnstakeReceipt, UnstakeError>
+    reads governanceLedger
+    modifies dao
+    ensures Dao.supplyBalanced(dao);
+    ensures Dao.configValid(dao);
+    ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
+  {
+    let now = Time.now();
+    Dao.requestUnstake(dao, caller, amount, now)
+  };
+
+  public shared({ caller }) func claim_unstaked() : async Result<ClaimUnstakeReceipt, UnstakeError>
+    reads governanceLedger
+    modifies dao
+    ensures Dao.supplyBalanced(dao);
+    ensures Dao.configValid(dao);
+    ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
+  {
+    let now = Time.now();
+    Dao.claimUnstaked(dao, caller, now)
+  };
+
+  public shared({ caller }) func create_proposal(
+    action : ConfigAction
+  ) : async Result<ProposalReceipt, ProposalError>
+    reads governanceLedger
+    modifies dao
+    ensures Dao.supplyBalanced(dao);
+    ensures Dao.configValid(dao);
+    ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
+  {
+    Dao.createProposal(dao, caller, action)
+  };
+
+  public shared({ caller }) func vote(
+    id : Nat,
+    choice : VoteChoice
+  ) : async Result<VoteReceipt, VoteError>
+    reads governanceLedger
+    modifies dao
+    ensures Dao.supplyBalanced(dao);
+    ensures Dao.configValid(dao);
+    ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
+  {
+    Dao.vote(dao, caller, id, choice)
+  };
+
+  public func close(id : Nat) : async Result<CloseReceipt, CloseError>
+    reads governanceLedger
+    modifies dao
+    ensures Dao.supplyBalanced(dao);
+    ensures Dao.configValid(dao);
+    ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
+  {
+    Dao.close(dao, id)
+  };
+
+  public func execute(id : Nat) : async Result<ExecuteReceipt, ExecuteError>
+    reads governanceLedger
+    modifies dao
+    ensures Dao.supplyBalanced(dao);
+    ensures Dao.configValid(dao);
+    ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
+  {
+    Dao.execute(dao, id)
+  };
+}

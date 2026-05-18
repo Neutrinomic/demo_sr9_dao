@@ -1,0 +1,146 @@
+import Dao "../lib/Dao";
+import Types "../lib/Types";
+
+module {
+  public func depositCreditsLiquid(
+    dao : Dao.State,
+    user : Principal,
+    ledger : Principal,
+    amount : Nat,
+    txIndex : Nat
+  ) : Types.Result<Types.DepositReceipt, Types.DepositError>
+    requires true;
+    ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao)) + amount;
+    ensures Dao.totalLiquid(dao) == old(Dao.totalLiquid(dao)) + amount;
+    ensures Dao.totalActiveStake(dao) == old(Dao.totalActiveStake(dao));
+    ensures Dao.totalPendingUnstake(dao) == old(Dao.totalPendingUnstake(dao));
+    ensures Dao.totalPendingWithdraw(dao) == old(Dao.totalPendingWithdraw(dao));
+    ensures Dao.config(dao) == old(Dao.config(dao));
+  {
+    Dao.finishDepositOk(dao, user, ledger, amount, txIndex)
+  };
+
+  public func beginWithdrawMovesToPending(
+    dao : Dao.State,
+    user : Principal,
+    ledger : Principal,
+    amount : Nat,
+    fee : Nat
+  ) : Types.Result<Types.WithdrawStarted, Types.WithdrawError>
+    requires true;
+    ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
+    ensures Dao.totalActiveStake(dao) == old(Dao.totalActiveStake(dao));
+    ensures Dao.totalPendingUnstake(dao) == old(Dao.totalPendingUnstake(dao));
+    ensures Dao.config(dao) == old(Dao.config(dao));
+  {
+    Dao.beginWithdraw(dao, user, ledger, amount, fee)
+  };
+
+  public func withdrawRejectRestoresDebit(
+    dao : Dao.State,
+    user : Principal,
+    ledger : Principal,
+    amount : Nat,
+    fee : Nat
+  ) : Types.Result<Types.WithdrawReceipt, Types.WithdrawError>
+    requires true;
+    ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
+    ensures Dao.totalActiveStake(dao) == old(Dao.totalActiveStake(dao));
+    ensures Dao.totalPendingUnstake(dao) == old(Dao.totalPendingUnstake(dao));
+    ensures Dao.config(dao) == old(Dao.config(dao));
+  {
+    switch (Dao.beginWithdraw(dao, user, ledger, amount, fee)) {
+      case (#err err) { #err(err) };
+      case (#ok started) {
+        Dao.finishWithdrawReject(dao, user, started, { message = "observer reject" })
+      }
+    }
+  };
+
+  public func withdrawSuccessSettlesDebit(
+    dao : Dao.State,
+    user : Principal,
+    ledger : Principal,
+    amount : Nat,
+    fee : Nat,
+    txIndex : Nat
+  ) : Types.Result<Types.WithdrawReceipt, Types.WithdrawError>
+    requires true;
+    ensures Dao.totalActiveStake(dao) == old(Dao.totalActiveStake(dao));
+    ensures Dao.totalPendingUnstake(dao) == old(Dao.totalPendingUnstake(dao));
+    ensures Dao.config(dao) == old(Dao.config(dao));
+  {
+    switch (Dao.beginWithdraw(dao, user, ledger, amount, fee)) {
+      case (#err err) { #err(err) };
+      case (#ok started) {
+        Dao.finishWithdrawOk(dao, user, started, txIndex)
+      }
+    }
+  };
+
+  public func stakingPreservesSupply(
+    dao : Dao.State,
+    user : Principal,
+    amount : Nat
+  ) : Types.Result<Types.StakeReceipt, Types.StakeError>
+    requires true;
+    ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
+    ensures Dao.config(dao) == old(Dao.config(dao));
+  {
+    Dao.stake(dao, user, amount)
+  };
+
+  public func unstakeRequestPreservesSupply(
+    dao : Dao.State,
+    user : Principal,
+    amount : Nat,
+    now : Int
+  ) : Types.Result<Types.RequestUnstakeReceipt, Types.UnstakeError>
+    requires true;
+    ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
+    ensures Dao.config(dao) == old(Dao.config(dao));
+  {
+    Dao.requestUnstake(dao, user, amount, now)
+  };
+
+  public func claimPreservesSupply(
+    dao : Dao.State,
+    user : Principal,
+    now : Int
+  ) : Types.Result<Types.ClaimUnstakeReceipt, Types.UnstakeError>
+    requires true;
+    ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
+    ensures Dao.config(dao) == old(Dao.config(dao));
+  {
+    Dao.claimUnstaked(dao, user, now)
+  };
+
+  public func votePreservesAccounting(
+    dao : Dao.State,
+    user : Principal,
+    id : Nat,
+    choice : Types.VoteChoice
+  ) : Types.Result<Types.VoteReceipt, Types.VoteError>
+    requires true;
+    ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
+    ensures Dao.totalLiquid(dao) == old(Dao.totalLiquid(dao));
+    ensures Dao.totalActiveStake(dao) == old(Dao.totalActiveStake(dao));
+    ensures Dao.totalPendingUnstake(dao) == old(Dao.totalPendingUnstake(dao));
+    ensures Dao.config(dao) == old(Dao.config(dao));
+  {
+    Dao.vote(dao, user, id, choice)
+  };
+
+  public func executePreservesSupply(
+    dao : Dao.State,
+    id : Nat
+  ) : Types.Result<Types.ExecuteReceipt, Types.ExecuteError>
+    requires true;
+    ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
+    ensures Dao.totalLiquid(dao) == old(Dao.totalLiquid(dao));
+    ensures Dao.totalActiveStake(dao) == old(Dao.totalActiveStake(dao));
+    ensures Dao.totalPendingUnstake(dao) == old(Dao.totalPendingUnstake(dao));
+  {
+    Dao.execute(dao, id)
+  };
+}

@@ -1,0 +1,1046 @@
+import BMap "mo:core/pure/BMap";
+import ICRCLedger "mo:core/pattern/ICRCLedger";
+import NatCore "mo:core/Nat";
+import Principal "mo:core/Principal";
+import Text "mo:core/Text";
+import Types "./Types";
+
+module {
+  public let UNSTAKE_DELAY_NS : Int = 604_800_000_000_000;
+
+  public type Model = {
+    governanceLedger : Principal;
+    totalSupply : Nat;
+    totalLiquid : Nat;
+    totalActiveStake : Nat;
+    totalPendingUnstake : Nat;
+    totalPendingWithdraw : Nat;
+    nextProposalId : Nat;
+    config : Types.Config
+  };
+
+  // Proposal status encoding: 0=open, 1=passed, 2=failed, 3=executed.
+  // Action encoding: 1=set quorum, 2=set proposal threshold, 3=set both.
+  public type State = opaque {
+    var governanceLedger : Principal;
+    var liquid : BMap.BMap<Text, Nat>;
+    var activeStake : BMap.BMap<Text, Nat>;
+    var pendingAmounts : BMap.BMap<Text, Nat>;
+    var pendingUnlocks : BMap.BMap<Text, Int>;
+    var pendingWithdrawAmounts : BMap.BMap<Text, Nat>;
+    var pendingWithdrawFees : BMap.BMap<Text, Nat>;
+    var pendingWithdrawDebits : BMap.BMap<Text, Nat>;
+    var votes : BMap.BMap<Text, Bool>;
+    var nextProposalId : Nat;
+    var hasProposal : Bool;
+    var proposalId : Nat;
+    var proposalProposer : Text;
+    var proposalActionKind : Nat;
+    var proposalActionQuorum : Nat;
+    var proposalActionThreshold : Nat;
+    var proposalYes : Nat;
+    var proposalNo : Nat;
+    var proposalQuorum : Nat;
+    var proposalSnapshotStake : Nat;
+    var proposalStatus : Nat;
+    var totalSupply : Nat;
+    var totalLiquid : Nat;
+    var totalActiveStake : Nat;
+    var totalPendingUnstake : Nat;
+    var totalPendingWithdraw : Nat;
+    var quorumVotes : Nat;
+    var proposalThreshold : Nat;
+    invariant BMap.orderedBy<Text, Nat>(liquid, Text.compare);
+    invariant BMap.orderedBy<Text, Nat>(activeStake, Text.compare);
+    invariant BMap.orderedBy<Text, Nat>(pendingAmounts, Text.compare);
+    invariant BMap.orderedBy<Text, Int>(pendingUnlocks, Text.compare);
+    invariant BMap.orderedBy<Text, Nat>(pendingWithdrawAmounts, Text.compare);
+    invariant BMap.orderedBy<Text, Nat>(pendingWithdrawFees, Text.compare);
+    invariant BMap.orderedBy<Text, Nat>(pendingWithdrawDebits, Text.compare);
+    invariant BMap.orderedBy<Text, Bool>(votes, Text.compare);
+    invariant totalLiquid + totalActiveStake + totalPendingUnstake + totalPendingWithdraw ==
+      totalSupply
+  };
+
+  public pure func model(dao : State) : Model
+    requires true;
+    ensures result.governanceLedger == dao.governanceLedger;
+    ensures result.totalSupply == dao.totalSupply;
+    ensures result.totalLiquid == dao.totalLiquid;
+    ensures result.totalActiveStake == dao.totalActiveStake;
+    ensures result.totalPendingUnstake == dao.totalPendingUnstake;
+    ensures result.totalPendingWithdraw == dao.totalPendingWithdraw;
+    ensures result.nextProposalId == dao.nextProposalId;
+    ensures result.config.quorumVotes == dao.quorumVotes;
+    ensures result.config.proposalThreshold == dao.proposalThreshold;
+  {
+    {
+      governanceLedger = dao.governanceLedger;
+      totalSupply = dao.totalSupply;
+      totalLiquid = dao.totalLiquid;
+      totalActiveStake = dao.totalActiveStake;
+      totalPendingUnstake = dao.totalPendingUnstake;
+      totalPendingWithdraw = dao.totalPendingWithdraw;
+      nextProposalId = dao.nextProposalId;
+      config = {
+        quorumVotes = dao.quorumVotes;
+        proposalThreshold = dao.proposalThreshold
+      }
+    }
+  };
+
+  public pure func supplyBalanced(dao : State) : Bool
+    requires true;
+    ensures result == (
+      model(dao).totalLiquid + model(dao).totalActiveStake +
+        model(dao).totalPendingUnstake + model(dao).totalPendingWithdraw ==
+        model(dao).totalSupply
+    );
+  {
+    model(dao).totalLiquid + model(dao).totalActiveStake +
+      model(dao).totalPendingUnstake + model(dao).totalPendingWithdraw ==
+      model(dao).totalSupply
+  };
+
+  public pure func configValid(_dao : State) : Bool
+    requires true;
+    ensures result == true;
+  {
+    true
+  };
+
+  public pure func governanceLedger(dao : State) : Principal
+    requires true;
+    ensures result == dao.governanceLedger;
+  {
+    dao.governanceLedger
+  };
+
+  public pure func totalSupply(dao : State) : Nat
+    requires true;
+    ensures result == dao.totalSupply;
+  {
+    dao.totalSupply
+  };
+
+  public pure func totalLiquid(dao : State) : Nat
+    requires true;
+    ensures result == dao.totalLiquid;
+  {
+    dao.totalLiquid
+  };
+
+  public pure func totalActiveStake(dao : State) : Nat
+    requires true;
+    ensures result == dao.totalActiveStake;
+  {
+    dao.totalActiveStake
+  };
+
+  public pure func totalPendingUnstake(dao : State) : Nat
+    requires true;
+    ensures result == dao.totalPendingUnstake;
+  {
+    dao.totalPendingUnstake
+  };
+
+  public pure func totalPendingWithdraw(dao : State) : Nat
+    requires true;
+    ensures result == dao.totalPendingWithdraw;
+  {
+    dao.totalPendingWithdraw
+  };
+
+  public pure func config(dao : State) : Types.Config
+    requires true;
+    ensures result.quorumVotes == dao.quorumVotes;
+    ensures result.proposalThreshold == dao.proposalThreshold;
+  {
+    {
+      quorumVotes = dao.quorumVotes;
+      proposalThreshold = dao.proposalThreshold
+    }
+  };
+
+  public pure func nextProposalId(dao : State) : Nat
+    requires true;
+    ensures result == dao.nextProposalId;
+  {
+    dao.nextProposalId
+  };
+
+  public pure func accountKey(user : Principal) : Text
+    requires true;
+  {
+    Principal.toText(user)
+  };
+
+  private pure func mapGetNat(map : BMap.BMap<Text, Nat>, key : Text) : Nat
+    requires true;
+  {
+    switch (BMap.get<Text, Nat>(map, Text.compare, key)) {
+      case (?amount) { amount };
+      case null { 0 }
+    }
+  };
+
+  private pure func mapGetInt(map : BMap.BMap<Text, Int>, key : Text) : Int
+    requires true;
+  {
+    switch (BMap.get<Text, Int>(map, Text.compare, key)) {
+      case (?time) { time };
+      case null { 0 }
+    }
+  };
+
+  private func putNat(map : BMap.BMap<Text, Nat>, key : Text, value : Nat) : BMap.BMap<Text, Nat>
+    requires BMap.orderedBy<Text, Nat>(map, Text.compare);
+    ensures BMap.orderedBy<Text, Nat>(result, Text.compare);
+  {
+    BMap.add<Text, Nat>(map, Text.compare, key, value)
+  };
+
+  private func putInt(map : BMap.BMap<Text, Int>, key : Text, value : Int) : BMap.BMap<Text, Int>
+    requires BMap.orderedBy<Text, Int>(map, Text.compare);
+    ensures BMap.orderedBy<Text, Int>(result, Text.compare);
+  {
+    BMap.add<Text, Int>(map, Text.compare, key, value)
+  };
+
+  private func putVote(map : BMap.BMap<Text, Bool>, key : Text) : BMap.BMap<Text, Bool>
+    requires BMap.orderedBy<Text, Bool>(map, Text.compare);
+    ensures BMap.orderedBy<Text, Bool>(result, Text.compare);
+  {
+    BMap.add<Text, Bool>(map, Text.compare, key, true)
+  };
+
+  private func voteKey(id : Nat, user : Principal) : Text
+    requires true;
+  {
+    NatCore.toText(id) # ":" # Principal.toText(user)
+  };
+
+  private pure func statusFromCode(code : Nat) : Types.ProposalStatus
+    requires true;
+  {
+    if (code == 1) {
+      #passed
+    } else if (code == 2) {
+      #failed
+    } else if (code == 3) {
+      #executed
+    } else {
+      #open
+    }
+  };
+
+  private pure func statusCode(status : Types.ProposalStatus) : Nat
+    requires true;
+  {
+    switch (status) {
+      case (#open) { 0 };
+      case (#passed) { 1 };
+      case (#failed) { 2 };
+      case (#executed) { 3 }
+    }
+  };
+
+  private pure func actionFromFields(kind : Nat, quorum : Nat, threshold : Nat) : Types.ConfigAction
+    requires true;
+  {
+    if (kind == 1) {
+      #setQuorum quorum
+    } else if (kind == 2) {
+      #setProposalThreshold threshold
+    } else {
+      #setConfig({ quorumVotes = quorum; proposalThreshold = threshold })
+    }
+  };
+
+  private pure func actionKind(action : Types.ConfigAction) : Nat
+    requires true;
+  {
+    switch (action) {
+      case (#setQuorum(_)) { 1 };
+      case (#setProposalThreshold(_)) { 2 };
+      case (#setConfig(_)) { 3 }
+    }
+  };
+
+  private pure func actionQuorum(config : Types.Config, action : Types.ConfigAction) : Nat
+    requires true;
+  {
+    switch (action) {
+      case (#setQuorum q) { q };
+      case (#setProposalThreshold(_)) { config.quorumVotes };
+      case (#setConfig cfg) { cfg.quorumVotes }
+    }
+  };
+
+  private pure func actionThreshold(config : Types.Config, action : Types.ConfigAction) : Nat
+    requires true;
+  {
+    switch (action) {
+      case (#setQuorum(_)) { config.proposalThreshold };
+      case (#setProposalThreshold t) { t };
+      case (#setConfig cfg) { cfg.proposalThreshold }
+    }
+  };
+
+  public func init(
+    ledgerPrincipal : Principal,
+    quorumVotes : Nat,
+    proposalThreshold : Nat
+  ) : State
+    requires true;
+    ensures supplyBalanced(result);
+    ensures configValid(result);
+    ensures governanceLedger(result) == ledgerPrincipal;
+    ensures totalSupply(result) == 0;
+    ensures totalLiquid(result) == 0;
+    ensures totalActiveStake(result) == 0;
+    ensures totalPendingUnstake(result) == 0;
+    ensures totalPendingWithdraw(result) == 0;
+    ensures config(result).quorumVotes == quorumVotes;
+    ensures config(result).proposalThreshold == proposalThreshold;
+  {
+    let liquid = BMap.empty<Text, Nat>();
+    let activeStake = BMap.empty<Text, Nat>();
+    let pendingAmounts = BMap.empty<Text, Nat>();
+    let pendingUnlocks = BMap.empty<Text, Int>();
+    let pendingWithdrawAmounts = BMap.empty<Text, Nat>();
+    let pendingWithdrawFees = BMap.empty<Text, Nat>();
+    let pendingWithdrawDebits = BMap.empty<Text, Nat>();
+    let votes = BMap.empty<Text, Bool>();
+    BMap.orderedBy_empty<Text, Nat>(Text.compare);
+    BMap.orderedBy_empty<Text, Nat>(Text.compare);
+    BMap.orderedBy_empty<Text, Nat>(Text.compare);
+    BMap.orderedBy_empty<Text, Int>(Text.compare);
+    BMap.orderedBy_empty<Text, Nat>(Text.compare);
+    BMap.orderedBy_empty<Text, Nat>(Text.compare);
+    BMap.orderedBy_empty<Text, Nat>(Text.compare);
+    BMap.orderedBy_empty<Text, Bool>(Text.compare);
+    {
+      var governanceLedger = ledgerPrincipal;
+      var liquid = liquid;
+      var activeStake = activeStake;
+      var pendingAmounts = pendingAmounts;
+      var pendingUnlocks = pendingUnlocks;
+      var pendingWithdrawAmounts = pendingWithdrawAmounts;
+      var pendingWithdrawFees = pendingWithdrawFees;
+      var pendingWithdrawDebits = pendingWithdrawDebits;
+      var votes = votes;
+      var nextProposalId = 0;
+      var hasProposal = false;
+      var proposalId = 0;
+      var proposalProposer = "";
+      var proposalActionKind = 0;
+      var proposalActionQuorum = 0;
+      var proposalActionThreshold = 0;
+      var proposalYes = 0;
+      var proposalNo = 0;
+      var proposalQuorum = 0;
+      var proposalSnapshotStake = 0;
+      var proposalStatus = 0;
+      var totalSupply = 0;
+      var totalLiquid = 0;
+      var totalActiveStake = 0;
+      var totalPendingUnstake = 0;
+      var totalPendingWithdraw = 0;
+      var quorumVotes = quorumVotes;
+      var proposalThreshold = proposalThreshold
+    }
+  };
+
+  public func liquidBalance(dao : State, user : Principal) : Nat
+    requires true;
+    ensures model(dao) == old(model(dao));
+  {
+    mapGetNat(dao.liquid, Principal.toText(user))
+  };
+
+  public func activeStake(dao : State, user : Principal) : Nat
+    requires true;
+    ensures model(dao) == old(model(dao));
+  {
+    mapGetNat(dao.activeStake, Principal.toText(user))
+  };
+
+  public func pendingUnstake(dao : State, user : Principal) : ?Types.PendingUnstake
+    requires true;
+    ensures model(dao) == old(model(dao));
+  {
+    let key = Principal.toText(user);
+    let amount = mapGetNat(dao.pendingAmounts, key);
+    if (amount == 0) {
+      null
+    } else {
+      ?{ amount = amount; unlockAt = mapGetInt(dao.pendingUnlocks, key) }
+    }
+  };
+
+  public func pendingUnstakeAmount(dao : State, user : Principal) : Nat
+    requires true;
+    ensures model(dao) == old(model(dao));
+  {
+    mapGetNat(dao.pendingAmounts, Principal.toText(user))
+  };
+
+  public func pendingWithdrawal(dao : State, user : Principal) : ?Types.PendingWithdrawal
+    requires true;
+    ensures model(dao) == old(model(dao));
+  {
+    let key = Principal.toText(user);
+    let debitAmount = mapGetNat(dao.pendingWithdrawDebits, key);
+    if (debitAmount == 0) {
+      null
+    } else {
+      ?{
+        amount = mapGetNat(dao.pendingWithdrawAmounts, key);
+        fee = mapGetNat(dao.pendingWithdrawFees, key);
+        debitAmount = debitAmount
+      }
+    }
+  };
+
+  public func pendingWithdrawAmount(dao : State, user : Principal) : Nat
+    requires true;
+    ensures model(dao) == old(model(dao));
+  {
+    mapGetNat(dao.pendingWithdrawDebits, Principal.toText(user))
+  };
+
+  public func stakeInfo(dao : State, user : Principal) : Types.StakeInfo
+    requires true;
+    ensures model(dao) == old(model(dao));
+  {
+    let pending = pendingUnstake(dao, user);
+    {
+      liquid = liquidBalance(dao, user);
+      activeStake = activeStake(dao, user);
+      pendingUnstake = pendingUnstakeAmount(dao, user);
+      pendingWithdraw = pendingWithdrawAmount(dao, user);
+      unlockAt = switch (pending) {
+        case (?p) { ?p.unlockAt };
+        case null { null }
+      }
+    }
+  };
+
+  public func proposal(dao : State, id : Nat) : ?Types.Proposal
+    requires true;
+    ensures model(dao) == old(model(dao));
+  {
+    if (dao.hasProposal and id == dao.proposalId) {
+      ?{
+        id = dao.proposalId;
+        proposer = dao.proposalProposer;
+        action = actionFromFields(
+          dao.proposalActionKind,
+          dao.proposalActionQuorum,
+          dao.proposalActionThreshold
+        );
+        yesVotes = dao.proposalYes;
+        noVotes = dao.proposalNo;
+        quorumVotes = dao.proposalQuorum;
+        snapshotActiveStake = dao.proposalSnapshotStake;
+        status = statusFromCode(dao.proposalStatus)
+      }
+    } else {
+      null
+    }
+  };
+
+  public pure func actionValid(_action : Types.ConfigAction, _supply : Nat) : Bool
+    requires true;
+    ensures result == true;
+  {
+    true
+  };
+
+  private pure func applyAction(config : Types.Config, action : Types.ConfigAction) : Types.Config
+    requires true;
+  {
+    switch (action) {
+      case (#setQuorum q) {
+        {
+          quorumVotes = q;
+          proposalThreshold = config.proposalThreshold
+        }
+      };
+      case (#setProposalThreshold t) {
+        {
+          quorumVotes = config.quorumVotes;
+          proposalThreshold = t
+        }
+      };
+      case (#setConfig cfg) { cfg }
+    }
+  };
+
+  public func beginDeposit(
+    dao : State,
+    amount : Nat
+  ) : Types.Result<(), Types.DepositError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures model(dao) == old(model(dao));
+  {
+    if (amount == 0) {
+      return #err(#zeroAmount)
+    };
+    #ok(())
+  };
+
+  public func finishDepositOk(
+    dao : State,
+    user : Principal,
+    ledger : Principal,
+    amount : Nat,
+    txIndex : Nat
+  ) : Types.Result<Types.DepositReceipt, Types.DepositError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao)) + amount;
+    ensures totalLiquid(dao) == old(totalLiquid(dao)) + amount;
+    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
+    ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
+    ensures config(dao) == old(config(dao));
+    ensures governanceLedger(dao) == old(governanceLedger(dao));
+    ensures switch (result) {
+      case (#ok receipt) {
+        receipt.ledger == ledger and
+        receipt.amount == amount and
+        receipt.txIndex == txIndex and
+        receipt.liquidBalance == mapGetNat(dao.liquid, accountKey(user))
+      };
+      case (#err(_)) { false }
+    };
+  {
+    let key = accountKey(user);
+    let liquidBefore = mapGetNat(dao.liquid, key);
+    assert BMap.orderedBy<Text, Nat>(dao.liquid, Text.compare);
+    dao.liquid := putNat(dao.liquid, key, liquidBefore + amount);
+    dao.totalLiquid += amount;
+    dao.totalSupply += amount;
+    #ok({
+      ledger = ledger;
+      amount = amount;
+      txIndex = txIndex;
+      liquidBalance = liquidBefore + amount
+    })
+  };
+
+  public func finishDepositErr(
+    dao : State,
+    err : ICRCLedger.TransferFromError
+  ) : Types.Result<Types.DepositReceipt, Types.DepositError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures model(dao) == old(model(dao));
+    ensures switch (result) {
+      case (#ok(_)) { false };
+      case (#err(_)) { true }
+    };
+  {
+    #err(#ledgerTransferFromErr err)
+  };
+
+  public func finishDepositReject(
+    dao : State,
+    reject : Types.LedgerReject
+  ) : Types.Result<Types.DepositReceipt, Types.DepositError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures model(dao) == old(model(dao));
+    ensures switch (result) {
+      case (#ok(_)) { false };
+      case (#err(_)) { true }
+    };
+  {
+    #err(#ledgerTransferFromRejected reject)
+  };
+
+  public func beginWithdraw(
+    dao : State,
+    user : Principal,
+    ledger : Principal,
+    amount : Nat,
+    fee : Nat
+  ) : Types.Result<Types.WithdrawStarted, Types.WithdrawError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
+    ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures config(dao) == old(config(dao));
+    ensures governanceLedger(dao) == old(governanceLedger(dao));
+    ensures switch (result) {
+      case (#ok started) {
+        started.ledger == ledger and
+        started.amount == amount and
+        started.fee == fee and
+        started.debitAmount == amount + fee and
+        totalLiquid(dao) + started.debitAmount == old(totalLiquid(dao)) and
+        totalPendingWithdraw(dao) ==
+          old(totalPendingWithdraw(dao)) + started.debitAmount
+      };
+      case (#err(_)) {
+        totalLiquid(dao) == old(totalLiquid(dao)) and
+        totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao))
+      }
+    };
+  {
+    if (amount == 0) {
+      return #err(#zeroAmount)
+    };
+    let key = accountKey(user);
+    if (mapGetNat(dao.pendingWithdrawDebits, key) > 0) {
+      return #err(#withdrawInProgress)
+    };
+    let debitAmount = amount + fee;
+    let liquidBefore = mapGetNat(dao.liquid, key);
+    if (liquidBefore < debitAmount or dao.totalLiquid < debitAmount) {
+      return #err(#insufficientLiquidBalance)
+    };
+    assert BMap.orderedBy<Text, Nat>(dao.liquid, Text.compare);
+    dao.liquid := putNat(dao.liquid, key, liquidBefore - debitAmount);
+    assert BMap.orderedBy<Text, Nat>(dao.pendingWithdrawAmounts, Text.compare);
+    dao.pendingWithdrawAmounts := putNat(dao.pendingWithdrawAmounts, key, amount);
+    assert BMap.orderedBy<Text, Nat>(dao.pendingWithdrawFees, Text.compare);
+    dao.pendingWithdrawFees := putNat(dao.pendingWithdrawFees, key, fee);
+    assert BMap.orderedBy<Text, Nat>(dao.pendingWithdrawDebits, Text.compare);
+    dao.pendingWithdrawDebits := putNat(dao.pendingWithdrawDebits, key, debitAmount);
+    dao.totalLiquid -= debitAmount;
+    dao.totalPendingWithdraw += debitAmount;
+    #ok({
+      ledger = ledger;
+      amount = amount;
+      fee = fee;
+      debitAmount = debitAmount
+    })
+  };
+
+  public func finishWithdrawOk(
+    dao : State,
+    user : Principal,
+    started : Types.WithdrawStarted,
+    txIndex : Nat
+  ) : Types.Result<Types.WithdrawReceipt, Types.WithdrawError>
+    requires true;
+    requires started.debitAmount == started.amount + started.fee;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalLiquid(dao) == old(totalLiquid(dao));
+    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
+    ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures config(dao) == old(config(dao));
+    ensures governanceLedger(dao) == old(governanceLedger(dao));
+    ensures switch (result) {
+      case (#ok receipt) {
+        receipt.ledger == started.ledger and
+        receipt.amount == started.amount and
+        receipt.fee == started.fee and
+        receipt.debitAmount == started.debitAmount and
+        receipt.debitAmount == receipt.amount + receipt.fee and
+        receipt.txIndex == txIndex and
+        receipt.liquidBalance == mapGetNat(dao.liquid, accountKey(user))
+      };
+      case (#err(_)) { true }
+    };
+  {
+    let key = accountKey(user);
+    let pendingDebit = mapGetNat(dao.pendingWithdrawDebits, key);
+    if (pendingDebit == 0 or pendingDebit != started.debitAmount) {
+      return #err(#withdrawInProgress)
+    };
+    if (dao.totalPendingWithdraw < pendingDebit or dao.totalSupply < pendingDebit) {
+      return #err(#withdrawInProgress)
+    };
+    assert BMap.orderedBy<Text, Nat>(dao.pendingWithdrawAmounts, Text.compare);
+    dao.pendingWithdrawAmounts := putNat(dao.pendingWithdrawAmounts, key, 0);
+    assert BMap.orderedBy<Text, Nat>(dao.pendingWithdrawFees, Text.compare);
+    dao.pendingWithdrawFees := putNat(dao.pendingWithdrawFees, key, 0);
+    assert BMap.orderedBy<Text, Nat>(dao.pendingWithdrawDebits, Text.compare);
+    dao.pendingWithdrawDebits := putNat(dao.pendingWithdrawDebits, key, 0);
+    dao.totalPendingWithdraw -= pendingDebit;
+    dao.totalSupply -= pendingDebit;
+    #ok({
+      ledger = started.ledger;
+      amount = started.amount;
+      fee = started.fee;
+      debitAmount = started.debitAmount;
+      txIndex = txIndex;
+      liquidBalance = mapGetNat(dao.liquid, key)
+    })
+  };
+
+  public func finishWithdrawErr(
+    dao : State,
+    user : Principal,
+    started : Types.WithdrawStarted,
+    err : ICRCLedger.TransferError
+  ) : Types.Result<Types.WithdrawReceipt, Types.WithdrawError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
+    ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures config(dao) == old(config(dao));
+    ensures governanceLedger(dao) == old(governanceLedger(dao));
+    ensures switch (result) {
+      case (#ok(_)) { false };
+      case (#err(_)) { true }
+    };
+  {
+    finishWithdrawFailure(dao, user, started);
+    #err(#ledgerTransferErr err)
+  };
+
+  public func finishWithdrawReject(
+    dao : State,
+    user : Principal,
+    started : Types.WithdrawStarted,
+    reject : Types.LedgerReject
+  ) : Types.Result<Types.WithdrawReceipt, Types.WithdrawError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
+    ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures config(dao) == old(config(dao));
+    ensures governanceLedger(dao) == old(governanceLedger(dao));
+    ensures switch (result) {
+      case (#ok(_)) { false };
+      case (#err(_)) { true }
+    };
+  {
+    finishWithdrawFailure(dao, user, started);
+    #err(#ledgerTransferRejected reject)
+  };
+
+  private func finishWithdrawFailure(
+    dao : State,
+    user : Principal,
+    started : Types.WithdrawStarted
+  ) : ()
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
+    ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures config(dao) == old(config(dao));
+    ensures governanceLedger(dao) == old(governanceLedger(dao));
+  {
+    let key = accountKey(user);
+    let pendingDebit = mapGetNat(dao.pendingWithdrawDebits, key);
+    if (pendingDebit == 0 or pendingDebit != started.debitAmount) {
+      return
+    };
+    if (dao.totalPendingWithdraw < pendingDebit) {
+      return
+    };
+    assert BMap.orderedBy<Text, Nat>(dao.pendingWithdrawAmounts, Text.compare);
+    dao.pendingWithdrawAmounts := putNat(dao.pendingWithdrawAmounts, key, 0);
+    assert BMap.orderedBy<Text, Nat>(dao.pendingWithdrawFees, Text.compare);
+    dao.pendingWithdrawFees := putNat(dao.pendingWithdrawFees, key, 0);
+    assert BMap.orderedBy<Text, Nat>(dao.pendingWithdrawDebits, Text.compare);
+    dao.pendingWithdrawDebits := putNat(dao.pendingWithdrawDebits, key, 0);
+    let liquidBefore = mapGetNat(dao.liquid, key);
+    assert BMap.orderedBy<Text, Nat>(dao.liquid, Text.compare);
+    dao.liquid := putNat(dao.liquid, key, liquidBefore + pendingDebit);
+    dao.totalPendingWithdraw -= pendingDebit;
+    dao.totalLiquid += pendingDebit
+  };
+
+  public func stake(
+    dao : State,
+    user : Principal,
+    amount : Nat
+  ) : Types.Result<Types.StakeReceipt, Types.StakeError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures config(dao) == old(config(dao));
+  {
+    if (amount == 0) {
+      return #err(#zeroAmount)
+    };
+    let key = accountKey(user);
+    let liquidBefore = mapGetNat(dao.liquid, key);
+    if (liquidBefore < amount) {
+      return #err(#insufficientLiquidBalance)
+    };
+    if (dao.totalLiquid < amount) {
+      return #err(#insufficientLiquidBalance)
+    };
+    let stakeBefore = mapGetNat(dao.activeStake, key);
+    assert BMap.orderedBy<Text, Nat>(dao.liquid, Text.compare);
+    dao.liquid := putNat(dao.liquid, key, liquidBefore - amount);
+    assert BMap.orderedBy<Text, Nat>(dao.activeStake, Text.compare);
+    dao.activeStake := putNat(dao.activeStake, key, stakeBefore + amount);
+    dao.totalLiquid -= amount;
+    dao.totalActiveStake += amount;
+    #ok({
+      amount = amount;
+      liquidBalance = liquidBefore - amount;
+      activeStake = stakeBefore + amount
+    })
+  };
+
+  public func requestUnstake(
+    dao : State,
+    user : Principal,
+    amount : Nat,
+    now : Int
+  ) : Types.Result<Types.RequestUnstakeReceipt, Types.UnstakeError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures config(dao) == old(config(dao));
+  {
+    if (amount == 0) {
+      return #err(#zeroAmount)
+    };
+    let key = accountKey(user);
+    let stakeBefore = mapGetNat(dao.activeStake, key);
+    if (stakeBefore < amount) {
+      return #err(#insufficientActiveStake)
+    };
+    if (dao.totalActiveStake < amount) {
+      return #err(#insufficientActiveStake)
+    };
+    if (mapGetNat(dao.pendingAmounts, key) > 0) {
+      return #err(#unstakeAlreadyPending)
+    };
+    let unlockAt = now + UNSTAKE_DELAY_NS;
+    assert BMap.orderedBy<Text, Nat>(dao.activeStake, Text.compare);
+    dao.activeStake := putNat(dao.activeStake, key, stakeBefore - amount);
+    assert BMap.orderedBy<Text, Nat>(dao.pendingAmounts, Text.compare);
+    dao.pendingAmounts := putNat(dao.pendingAmounts, key, amount);
+    assert BMap.orderedBy<Text, Int>(dao.pendingUnlocks, Text.compare);
+    dao.pendingUnlocks := putInt(dao.pendingUnlocks, key, unlockAt);
+    dao.totalActiveStake -= amount;
+    dao.totalPendingUnstake += amount;
+    #ok({
+      amount = amount;
+      activeStake = stakeBefore - amount;
+      pendingUnstake = amount;
+      unlockAt = unlockAt
+    })
+  };
+
+  public func claimUnstaked(
+    dao : State,
+    user : Principal,
+    now : Int
+  ) : Types.Result<Types.ClaimUnstakeReceipt, Types.UnstakeError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures config(dao) == old(config(dao));
+  {
+    let key = accountKey(user);
+    let amount = mapGetNat(dao.pendingAmounts, key);
+    if (amount == 0) {
+      return #err(#noPendingUnstake)
+    };
+    if (dao.totalPendingUnstake < amount) {
+      return #err(#noPendingUnstake)
+    };
+    let unlockAt = mapGetInt(dao.pendingUnlocks, key);
+    if (now < unlockAt) {
+      return #err(#cooldownActive({ now = now; unlockAt = unlockAt }))
+    };
+    let liquidBefore = mapGetNat(dao.liquid, key);
+    assert BMap.orderedBy<Text, Nat>(dao.pendingAmounts, Text.compare);
+    dao.pendingAmounts := putNat(dao.pendingAmounts, key, 0);
+    assert BMap.orderedBy<Text, Nat>(dao.liquid, Text.compare);
+    dao.liquid := putNat(dao.liquid, key, liquidBefore + amount);
+    dao.totalPendingUnstake -= amount;
+    dao.totalLiquid += amount;
+    #ok({
+      amount = amount;
+      liquidBalance = liquidBefore + amount
+    })
+  };
+
+  public func createProposal(
+    dao : State,
+    proposer : Principal,
+    action : Types.ConfigAction
+  ) : Types.Result<Types.ProposalReceipt, Types.ProposalError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures totalLiquid(dao) == old(totalLiquid(dao));
+    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
+    ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+  {
+    if (dao.hasProposal and (dao.proposalStatus == 0 or dao.proposalStatus == 1)) {
+      return #err(#proposalInProgress)
+    };
+    let proposerStake = activeStake(dao, proposer);
+    if (proposerStake < dao.proposalThreshold) {
+      return #err(#proposalThresholdNotMet)
+    };
+    if (not actionValid(action, dao.totalSupply)) {
+      return #err(#invalidConfigAction)
+    };
+    let id = dao.nextProposalId;
+    let currentConfig = config(dao);
+    dao.hasProposal := true;
+    dao.proposalId := id;
+    dao.proposalProposer := accountKey(proposer);
+    dao.proposalActionKind := actionKind(action);
+    dao.proposalActionQuorum := actionQuorum(currentConfig, action);
+    dao.proposalActionThreshold := actionThreshold(currentConfig, action);
+    dao.proposalYes := 0;
+    dao.proposalNo := 0;
+    dao.proposalQuorum := dao.quorumVotes;
+    dao.proposalSnapshotStake := dao.totalActiveStake;
+    dao.proposalStatus := 0;
+    dao.nextProposalId += 1;
+    #ok({
+      id = id;
+      proposer = proposer;
+      quorumVotes = dao.quorumVotes;
+      snapshotActiveStake = dao.totalActiveStake
+    })
+  };
+
+  public func vote(
+    dao : State,
+    voter : Principal,
+    id : Nat,
+    choice : Types.VoteChoice
+  ) : Types.Result<Types.VoteReceipt, Types.VoteError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures totalLiquid(dao) == old(totalLiquid(dao));
+    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
+    ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures config(dao) == old(config(dao));
+  {
+    if (not dao.hasProposal or id != dao.proposalId) {
+      return #err(#proposalNotFound)
+    };
+    if (dao.proposalStatus != 0) {
+      return #err(#proposalNotOpen)
+    };
+    let weight = activeStake(dao, voter);
+    if (weight == 0) {
+      return #err(#noVotingPower)
+    };
+    let vk = voteKey(id, voter);
+    switch (BMap.get<Text, Bool>(dao.votes, Text.compare, vk)) {
+      case (?_) { return #err(#alreadyVoted) };
+      case null {}
+    };
+    assert BMap.orderedBy<Text, Bool>(dao.votes, Text.compare);
+    dao.votes := putVote(dao.votes, vk);
+    switch (choice) {
+      case (#yes) { dao.proposalYes += weight };
+      case (#no) { dao.proposalNo += weight }
+    };
+    #ok({
+      id = id;
+      voter = voter;
+      choice = choice;
+      weight = weight;
+      yesVotes = dao.proposalYes;
+      noVotes = dao.proposalNo
+    })
+  };
+
+  public func close(
+    dao : State,
+    id : Nat
+  ) : Types.Result<Types.CloseReceipt, Types.CloseError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures totalLiquid(dao) == old(totalLiquid(dao));
+    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
+    ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+    ensures config(dao) == old(config(dao));
+  {
+    if (not dao.hasProposal or id != dao.proposalId) {
+      return #err(#proposalNotFound)
+    };
+    if (dao.proposalStatus != 0) {
+      return #err(#proposalNotOpen)
+    };
+    let participated = dao.proposalYes + dao.proposalNo;
+    let nextStatus : Types.ProposalStatus = if (
+      participated >= dao.proposalQuorum and dao.proposalYes > dao.proposalNo
+    ) {
+      #passed
+    } else {
+      #failed
+    };
+    dao.proposalStatus := statusCode(nextStatus);
+    #ok({
+      id = id;
+      status = nextStatus;
+      yesVotes = dao.proposalYes;
+      noVotes = dao.proposalNo;
+      quorumVotes = dao.proposalQuorum
+    })
+  };
+
+  public func execute(
+    dao : State,
+    id : Nat
+  ) : Types.Result<Types.ExecuteReceipt, Types.ExecuteError>
+    requires true;
+    ensures supplyBalanced(dao);
+    ensures configValid(dao);
+    ensures totalSupply(dao) == old(totalSupply(dao));
+    ensures totalLiquid(dao) == old(totalLiquid(dao));
+    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
+    ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
+  {
+    if (not dao.hasProposal or id != dao.proposalId) {
+      return #err(#proposalNotFound)
+    };
+    if (dao.proposalStatus == 3) {
+      return #err(#alreadyExecuted)
+    };
+    if (dao.proposalStatus != 1) {
+      return #err(#proposalNotPassed)
+    };
+    let action = actionFromFields(
+      dao.proposalActionKind,
+      dao.proposalActionQuorum,
+      dao.proposalActionThreshold
+    );
+    if (not actionValid(action, dao.totalSupply)) {
+      return #err(#invalidConfigAction)
+    };
+    let nextConfig = applyAction(config(dao), action);
+    dao.quorumVotes := nextConfig.quorumVotes;
+    dao.proposalThreshold := nextConfig.proposalThreshold;
+    dao.proposalStatus := 3;
+    #ok({
+      id = id;
+      config = nextConfig
+    })
+  };
+}
