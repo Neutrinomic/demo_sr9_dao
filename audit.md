@@ -41,7 +41,7 @@ The review intentionally ignores formal verification claims and focuses on produ
   `lib/Dao.sr9:765`, `lib/Dao.sr9:1262`.
   Zero balances and cleared pending-withdrawal fields are written back instead of removed. Vote keys are never cleared. Delete zero entries, prune finalized proposal vote records, and bound or archive proposal-related storage.
 
-- [ ] **Low: make `voting_power` report eligible voting power or rename it.**
+- [x] **Low: make `voting_power` report eligible voting power or rename it.**
   `DaoActorDemo.sr9:112`, `lib/Dao.sr9:1252`.
   `voting_power(user)` returns active stake even when it is still locked. Rename it to `active_stake`, or make it time-aware and return only currently eligible voting power.
 

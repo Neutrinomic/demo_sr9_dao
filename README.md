@@ -40,8 +40,9 @@ Voting power still requires staking:
   `votingPowerUnlockAt` to `now + 7 days`.
 - `create_proposal(action)` and `vote(id, choice)` both require the caller's
   active stake lock to be mature.
-- `voting_power(user)` returns active stake; `stake_info(user)` includes
-  `votingPowerUnlockAt` so callers can tell when active stake becomes eligible.
+- `voting_power(user)` returns mature active stake and reports `0` while the
+  7-day voting lock is active; `stake_info(user)` includes
+  `votingPowerUnlockAt`.
 - `request_unstake(amount)` removes voting power immediately and starts the
   7-day cooldown, except stake already used to vote stays locked while that
   proposal is open.
@@ -127,6 +128,8 @@ The verified contracts prove:
   and increases active stake by exactly `amount`
 - successful staking sets the caller's voting unlock time to exactly
   `now + 7 days`
+- eligible voting power is zero before the caller's voting unlock time and
+  equals active stake after it
 - successful proposal creation and successful voting prove
   `now >= votingPowerUnlockAt`
 - unstake requests remove active voting power and move tokens into pending

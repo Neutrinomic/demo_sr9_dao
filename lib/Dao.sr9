@@ -428,6 +428,24 @@ module {
     mapGetNat(dao.activeStake, accountKey(user))
   };
 
+  public func eligibleVotingPower(dao : State, user : Principal, now : Int) : Nat
+    requires true;
+    ensures model(dao) == old(model(dao));
+    ensures if (now < mapGetInt(dao.stakeUnlocks, accountKey(user))) {
+      result == 0
+    } else {
+      result == mapGetNat(dao.activeStake, accountKey(user))
+    };
+  {
+    let key = accountKey(user);
+    let unlockAt = mapGetInt(dao.stakeUnlocks, key);
+    if (now < unlockAt) {
+      0
+    } else {
+      mapGetNat(dao.activeStake, key)
+    }
+  };
+
   public func pendingUnstake(dao : State, user : Principal) : ?Types.PendingUnstake
     requires true;
     ensures model(dao) == old(model(dao));

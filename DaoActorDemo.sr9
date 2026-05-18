@@ -112,7 +112,8 @@ persistent actor class DaoActorDemo(
   public query func voting_power(user : Principal) : async Nat
     reads dao
   {
-    Dao.activeStake(dao, user)
+    let now = Time.now();
+    Dao.eligibleVotingPower(dao, user, now)
   };
 
   public query func stake_info(user : Principal) : async StakeInfo
