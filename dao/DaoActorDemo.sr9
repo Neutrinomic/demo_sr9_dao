@@ -46,6 +46,55 @@ persistent actor class DaoActorDemo(
     { message = "ledger call rejected" }
   };
 
+  private func depositTransferFromArgs(
+    caller : Principal,
+    amount : Nat
+  ) : ICRCLedger.TransferFromArgs
+    requires true;
+    ensures result.to.owner == Runtime.selfId();
+    ensures result.to.subaccount == null;
+    ensures result.from.owner == caller;
+    ensures result.from.subaccount == null;
+    ensures result.spender_subaccount == null;
+    ensures result.fee == null;
+    ensures result.memo == null;
+    ensures result.created_at_time == null;
+    ensures result.amount == amount;
+  {
+    {
+      to = { owner = Runtime.selfId(); subaccount = null };
+      fee = null;
+      spender_subaccount = null;
+      from = { owner = caller; subaccount = null };
+      memo = null;
+      created_at_time = null;
+      amount = amount
+    }
+  };
+
+  private func withdrawTransferArgs(
+    caller : Principal,
+    started : Types.WithdrawStarted
+  ) : ICRCLedger.TransferArg
+    requires true;
+    ensures result.to.owner == caller;
+    ensures result.to.subaccount == null;
+    ensures result.fee == ?started.fee;
+    ensures result.memo == null;
+    ensures result.from_subaccount == null;
+    ensures result.created_at_time == null;
+    ensures result.amount == started.amount;
+  {
+    {
+      to = { owner = caller; subaccount = null };
+      fee = ?started.fee;
+      memo = null;
+      from_subaccount = null;
+      created_at_time = null;
+      amount = started.amount
+    }
+  };
+
   public query func governance_ledger() : async Principal
     reads governanceLedger
     ensures result == governanceLedger;
@@ -91,15 +140,7 @@ persistent actor class DaoActorDemo(
       case (#ok _) {
         let ledger = governanceLedger;
         let remote = ICRCLedger.fromPrincipal(ledger);
-        let args : ICRCLedger.TransferFromArgs = {
-          to = { owner = Runtime.selfId(); subaccount = null };
-          fee = null;
-          spender_subaccount = null;
-          from = { owner = caller; subaccount = null };
-          memo = null;
-          created_at_time = null;
-          amount = amount
-        };
+        let args = depositTransferFromArgs(caller, amount);
         try {
           let result = await remote.icrc2_transfer_from(args);
           switch (result) {
@@ -133,14 +174,7 @@ persistent actor class DaoActorDemo(
         case (#err err) { #err(err) };
         case (#ok started) {
           assert started.debitAmount == started.amount + started.fee;
-          let args : ICRCLedger.TransferArg = {
-            to = { owner = caller; subaccount = null };
-            fee = ?started.fee;
-            memo = null;
-            from_subaccount = null;
-            created_at_time = null;
-            amount = amount
-          };
+          let args = withdrawTransferArgs(caller, started);
           try {
             let result = await remote.icrc1_transfer(args);
             switch (result) {
