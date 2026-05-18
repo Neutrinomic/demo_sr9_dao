@@ -25,6 +25,7 @@ module {
     var governanceLedger : Principal;
     var liquid : BMap.BMap<Text, Nat>;
     var activeStake : BMap.BMap<Text, Nat>;
+    var stakeUnlocks : BMap.BMap<Text, Int>;
     var pendingAmounts : BMap.BMap<Text, Nat>;
     var pendingUnlocks : BMap.BMap<Text, Int>;
     var pendingWithdrawAmounts : BMap.BMap<Text, Nat>;
@@ -52,6 +53,7 @@ module {
     var proposalThreshold : Nat;
     invariant BMap.orderedBy<Text, Nat>(liquid, Text.compare);
     invariant BMap.orderedBy<Text, Nat>(activeStake, Text.compare);
+    invariant BMap.orderedBy<Text, Int>(stakeUnlocks, Text.compare);
     invariant BMap.orderedBy<Text, Nat>(pendingAmounts, Text.compare);
     invariant BMap.orderedBy<Text, Int>(pendingUnlocks, Text.compare);
     invariant BMap.orderedBy<Text, Nat>(pendingWithdrawAmounts, Text.compare);
@@ -315,6 +317,7 @@ module {
   {
     let liquid = BMap.empty<Text, Nat>();
     let activeStake = BMap.empty<Text, Nat>();
+    let stakeUnlocks = BMap.empty<Text, Int>();
     let pendingAmounts = BMap.empty<Text, Nat>();
     let pendingUnlocks = BMap.empty<Text, Int>();
     let pendingWithdrawAmounts = BMap.empty<Text, Nat>();
@@ -323,6 +326,7 @@ module {
     let votes = BMap.empty<Text, Bool>();
     BMap.orderedBy_empty<Text, Nat>(Text.compare);
     BMap.orderedBy_empty<Text, Nat>(Text.compare);
+    BMap.orderedBy_empty<Text, Int>(Text.compare);
     BMap.orderedBy_empty<Text, Nat>(Text.compare);
     BMap.orderedBy_empty<Text, Int>(Text.compare);
     BMap.orderedBy_empty<Text, Nat>(Text.compare);
@@ -333,6 +337,7 @@ module {
       var governanceLedger = ledgerPrincipal;
       var liquid = liquid;
       var activeStake = activeStake;
+      var stakeUnlocks = stakeUnlocks;
       var pendingAmounts = pendingAmounts;
       var pendingUnlocks = pendingUnlocks;
       var pendingWithdrawAmounts = pendingWithdrawAmounts;
@@ -423,12 +428,19 @@ module {
     requires true;
     ensures model(dao) == old(model(dao));
   {
+    let key = accountKey(user);
     let pending = pendingUnstake(dao, user);
+    let active = mapGetNat(dao.activeStake, key);
     {
-      liquid = mapGetNat(dao.liquid, accountKey(user));
-      activeStake = mapGetNat(dao.activeStake, accountKey(user));
-      pendingUnstake = mapGetNat(dao.pendingAmounts, accountKey(user));
-      pendingWithdraw = mapGetNat(dao.pendingWithdrawDebits, accountKey(user));
+      liquid = mapGetNat(dao.liquid, key);
+      activeStake = active;
+      pendingUnstake = mapGetNat(dao.pendingAmounts, key);
+      pendingWithdraw = mapGetNat(dao.pendingWithdrawDebits, key);
+      votingPowerUnlockAt = if (active == 0) {
+        null
+      } else {
+        ?mapGetInt(dao.stakeUnlocks, key)
+      };
       unlockAt = switch (pending) {
         case (?p) { ?p.unlockAt };
         case null { null }
@@ -830,7 +842,8 @@ module {
   private func stakeImpl(
     dao : State,
     user : Principal,
-    amount : Nat
+    amount : Nat,
+    now : Int
   ) : Types.Result<Types.StakeReceipt, Types.StakeError>
     requires true;
     ensures supplyBalanced(dao);
@@ -844,12 +857,15 @@ module {
         receipt.amount == amount and
         mapGetNat(dao.liquid, accountKey(user)) + amount == old(mapGetNat(dao.liquid, accountKey(user))) and
         mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user))) + amount and
+        mapGetInt(dao.stakeUnlocks, accountKey(user)) == now + UNSTAKE_DELAY_NS and
         receipt.liquidBalance == mapGetNat(dao.liquid, accountKey(user)) and
-        receipt.activeStake == mapGetNat(dao.activeStake, accountKey(user))
+        receipt.activeStake == mapGetNat(dao.activeStake, accountKey(user)) and
+        receipt.votingPowerUnlockAt == now + UNSTAKE_DELAY_NS
       };
       case (#err(_)) {
         mapGetNat(dao.liquid, accountKey(user)) == old(mapGetNat(dao.liquid, accountKey(user))) and
-        mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)))
+        mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user))) and
+        mapGetInt(dao.stakeUnlocks, accountKey(user)) == old(mapGetInt(dao.stakeUnlocks, accountKey(user)))
       }
     };
   {
@@ -865,16 +881,20 @@ module {
       return #err(#insufficientLiquidBalance)
     };
     let stakeBefore = mapGetNat(dao.activeStake, key);
+    let votingPowerUnlockAt = now + UNSTAKE_DELAY_NS;
     assert BMap.orderedBy<Text, Nat>(dao.liquid, Text.compare);
     dao.liquid := putNat(dao.liquid, key, liquidBefore - amount);
     assert BMap.orderedBy<Text, Nat>(dao.activeStake, Text.compare);
     dao.activeStake := putNat(dao.activeStake, key, stakeBefore + amount);
+    assert BMap.orderedBy<Text, Int>(dao.stakeUnlocks, Text.compare);
+    dao.stakeUnlocks := putInt(dao.stakeUnlocks, key, votingPowerUnlockAt);
     dao.totalLiquid -= amount;
     dao.totalActiveStake += amount;
     #ok({
       amount = amount;
       liquidBalance = liquidBefore - amount;
-      activeStake = stakeBefore + amount
+      activeStake = stakeBefore + amount;
+      votingPowerUnlockAt = votingPowerUnlockAt
     })
   };
 
@@ -991,7 +1011,8 @@ module {
   private func createProposalImpl(
     dao : State,
     proposer : Principal,
-    action : Types.ConfigAction
+    action : Types.ConfigAction,
+    now : Int
   ) : Types.Result<Types.ProposalReceipt, Types.ProposalError>
     requires true;
     ensures supplyBalanced(dao);
@@ -1005,17 +1026,34 @@ module {
     ensures mapGetNat(dao.activeStake, accountKey(proposer)) == old(mapGetNat(dao.activeStake, accountKey(proposer)));
     ensures mapGetNat(dao.pendingAmounts, accountKey(proposer)) == old(mapGetNat(dao.pendingAmounts, accountKey(proposer)));
     ensures mapGetNat(dao.pendingWithdrawDebits, accountKey(proposer)) == old(mapGetNat(dao.pendingWithdrawDebits, accountKey(proposer)));
+    ensures mapGetInt(dao.stakeUnlocks, accountKey(proposer)) == old(mapGetInt(dao.stakeUnlocks, accountKey(proposer)));
     ensures forall<Text>(pure func (key : Text) : Bool =
       mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
       mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
       mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
       mapGetNat(dao.pendingWithdrawDebits, key) ==
         old(mapGetNat(dao.pendingWithdrawDebits, key)));
+    ensures switch (result) {
+      case (#ok receipt) {
+        receipt.proposer == proposer and
+        receipt.snapshotActiveStake == old(totalActiveStake(dao)) and
+        now >= old(mapGetInt(dao.stakeUnlocks, accountKey(proposer)))
+      };
+      case (#err(_)) { true }
+    };
   {
     if (dao.hasProposal and (dao.proposalStatus == 0 or dao.proposalStatus == 1)) {
       return #err(#proposalInProgress)
     };
-    let proposerStake = mapGetNat(dao.activeStake, accountKey(proposer));
+    let proposerKey = accountKey(proposer);
+    let proposerStake = mapGetNat(dao.activeStake, proposerKey);
+    let proposerUnlockAt = mapGetInt(dao.stakeUnlocks, proposerKey);
+    if (proposerStake == 0) {
+      return #err(#proposalThresholdNotMet)
+    };
+    if (now < proposerUnlockAt) {
+      return #err(#stakeLockActive({ now = now; unlockAt = proposerUnlockAt }))
+    };
     if (proposerStake < dao.proposalThreshold) {
       return #err(#proposalThresholdNotMet)
     };
@@ -1026,7 +1064,7 @@ module {
     let currentConfig = config(dao);
     dao.hasProposal := true;
     dao.proposalId := id;
-    dao.proposalProposer := accountKey(proposer);
+    dao.proposalProposer := proposerKey;
     dao.proposalActionKind := actionKind(action);
     dao.proposalActionQuorum := actionQuorum(currentConfig, action);
     dao.proposalActionThreshold := actionThreshold(currentConfig, action);
@@ -1048,7 +1086,8 @@ module {
     dao : State,
     voter : Principal,
     id : Nat,
-    choice : Types.VoteChoice
+    choice : Types.VoteChoice,
+    now : Int
   ) : Types.Result<Types.VoteReceipt, Types.VoteError>
     requires true;
     ensures supplyBalanced(dao);
@@ -1063,6 +1102,7 @@ module {
     ensures mapGetNat(dao.activeStake, accountKey(voter)) == old(mapGetNat(dao.activeStake, accountKey(voter)));
     ensures mapGetNat(dao.pendingAmounts, accountKey(voter)) == old(mapGetNat(dao.pendingAmounts, accountKey(voter)));
     ensures mapGetNat(dao.pendingWithdrawDebits, accountKey(voter)) == old(mapGetNat(dao.pendingWithdrawDebits, accountKey(voter)));
+    ensures mapGetInt(dao.stakeUnlocks, accountKey(voter)) == old(mapGetInt(dao.stakeUnlocks, accountKey(voter)));
     ensures forall<Text>(pure func (key : Text) : Bool =
       mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
       mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
@@ -1080,6 +1120,7 @@ module {
         receipt.choice == choice and
         receipt.weight == old(mapGetNat(dao.activeStake, accountKey(voter))) and
         receipt.weight > 0 and
+        now >= old(mapGetInt(dao.stakeUnlocks, accountKey(voter))) and
         not old(mapGetBool(dao.votes, voteKey(id, voter))) and
         mapGetBool(dao.votes, voteKey(id, voter)) and
         receipt.yesVotes == dao.proposalYes and
@@ -1104,9 +1145,14 @@ module {
     if (dao.proposalStatus != 0) {
       return #err(#proposalNotOpen)
     };
-    let weight = mapGetNat(dao.activeStake, accountKey(voter));
+    let voterKey = accountKey(voter);
+    let weight = mapGetNat(dao.activeStake, voterKey);
     if (weight == 0) {
       return #err(#noVotingPower)
+    };
+    let voterUnlockAt = mapGetInt(dao.stakeUnlocks, voterKey);
+    if (now < voterUnlockAt) {
+      return #err(#stakeLockActive({ now = now; unlockAt = voterUnlockAt }))
     };
     let vk = voteKey(id, voter);
     switch (BMap.get<Text, Bool>(dao.votes, Text.compare, vk)) {
@@ -1391,7 +1437,8 @@ module {
   public func stake(
     dao : State,
     user : Principal,
-    amount : Nat
+    amount : Nat,
+    now : Int
   ) : Types.Result<Types.StakeReceipt, Types.StakeError>
     requires true;
     ensures supplyBalanced(dao);
@@ -1399,7 +1446,7 @@ module {
     ensures totalSupply(dao) == old(totalSupply(dao));
     ensures config(dao) == old(config(dao));
   {
-    stakeImpl(dao, user, amount)
+    stakeImpl(dao, user, amount, now)
   };
 
   public func requestUnstake(
@@ -1434,7 +1481,8 @@ module {
   public func createProposal(
     dao : State,
     proposer : Principal,
-    action : Types.ConfigAction
+    action : Types.ConfigAction,
+    now : Int
   ) : Types.Result<Types.ProposalReceipt, Types.ProposalError>
     requires true;
     ensures supplyBalanced(dao);
@@ -1445,14 +1493,15 @@ module {
     ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
     ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
   {
-    createProposalImpl(dao, proposer, action)
+    createProposalImpl(dao, proposer, action, now)
   };
 
   public func vote(
     dao : State,
     voter : Principal,
     id : Nat,
-    choice : Types.VoteChoice
+    choice : Types.VoteChoice,
+    now : Int
   ) : Types.Result<Types.VoteReceipt, Types.VoteError>
     requires true;
     ensures supplyBalanced(dao);
@@ -1464,7 +1513,7 @@ module {
     ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
     ensures config(dao) == old(config(dao));
   {
-    voteImpl(dao, voter, id, choice)
+    voteImpl(dao, voter, id, choice, now)
   };
 
   public func close(

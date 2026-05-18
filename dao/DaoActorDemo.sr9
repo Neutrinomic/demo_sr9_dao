@@ -202,7 +202,8 @@ persistent actor class DaoActorDemo(
     ensures Dao.configValid(dao);
     ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
   {
-    Dao.stake(dao, caller, amount)
+    let now = Time.now();
+    Dao.stake(dao, caller, amount, now)
   };
 
   public shared({ caller }) func request_unstake(
@@ -238,7 +239,8 @@ persistent actor class DaoActorDemo(
     ensures Dao.configValid(dao);
     ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
   {
-    Dao.createProposal(dao, caller, action)
+    let now = Time.now();
+    Dao.createProposal(dao, caller, action, now)
   };
 
   public shared({ caller }) func vote(
@@ -251,7 +253,8 @@ persistent actor class DaoActorDemo(
     ensures Dao.configValid(dao);
     ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
   {
-    Dao.vote(dao, caller, id, choice)
+    let now = Time.now();
+    Dao.vote(dao, caller, id, choice, now)
   };
 
   public func close(id : Nat) : async Result<CloseReceipt, CloseError>

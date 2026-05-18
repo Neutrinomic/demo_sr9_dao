@@ -37,6 +37,7 @@ module {
     activeStake : Nat;
     pendingUnstake : Nat;
     pendingWithdraw : Nat;
+    votingPowerUnlockAt : ?Int;
     unlockAt : ?Int
   };
 
@@ -77,7 +78,8 @@ module {
   public type StakeReceipt = {
     amount : Nat;
     liquidBalance : Nat;
-    activeStake : Nat
+    activeStake : Nat;
+    votingPowerUnlockAt : Int
   };
 
   public type RequestUnstakeReceipt = {
@@ -151,6 +153,7 @@ module {
 
   public type ProposalError = {
     #proposalThresholdNotMet;
+    #stakeLockActive : { now : Int; unlockAt : Int };
     #invalidConfigAction;
     #proposalInProgress
   };
@@ -159,6 +162,7 @@ module {
     #proposalNotFound;
     #proposalNotOpen;
     #noVotingPower;
+    #stakeLockActive : { now : Int; unlockAt : Int };
     #alreadyVoted
   };
 

@@ -81,13 +81,14 @@ module {
   public func stakingPreservesSupply(
     dao : Dao.State,
     user : Principal,
-    amount : Nat
+    amount : Nat,
+    now : Int
   ) : Types.Result<Types.StakeReceipt, Types.StakeError>
     requires true;
     ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
     ensures Dao.config(dao) == old(Dao.config(dao));
   {
-    Dao.stake(dao, user, amount)
+    Dao.stake(dao, user, amount, now)
   };
 
   public func unstakeRequestPreservesSupply(
@@ -119,7 +120,8 @@ module {
     dao : Dao.State,
     user : Principal,
     id : Nat,
-    choice : Types.VoteChoice
+    choice : Types.VoteChoice,
+    now : Int
   ) : Types.Result<Types.VoteReceipt, Types.VoteError>
     requires true;
     ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
@@ -128,7 +130,7 @@ module {
     ensures Dao.totalPendingUnstake(dao) == old(Dao.totalPendingUnstake(dao));
     ensures Dao.config(dao) == old(Dao.config(dao));
   {
-    Dao.vote(dao, user, id, choice)
+    Dao.vote(dao, user, id, choice, now)
   };
 
   public func executePreservesSupply(
