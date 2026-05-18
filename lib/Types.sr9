@@ -29,6 +29,8 @@ module {
     noVotes : Nat;
     quorumVotes : Nat;
     snapshotActiveStake : Nat;
+    createdAt : Int;
+    deadline : Int;
     status : ProposalStatus
   };
 
@@ -98,7 +100,9 @@ module {
     id : Nat;
     proposer : Principal;
     quorumVotes : Nat;
-    snapshotActiveStake : Nat
+    snapshotActiveStake : Nat;
+    createdAt : Int;
+    deadline : Int
   };
 
   public type VoteReceipt = {
@@ -168,7 +172,8 @@ module {
 
   public type CloseError = {
     #proposalNotFound;
-    #proposalNotOpen
+    #proposalNotOpen;
+    #votingPeriodActive : { now : Int; deadline : Int }
   };
 
   public type ExecuteError = {

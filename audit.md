@@ -21,7 +21,7 @@ The review intentionally ignores formal verification claims and focuses on produ
   `DaoActorDemo.sr9:173`, `DaoActorDemo.sr9:179`, `lib/Dao.sr9:697`.
   Pending withdrawals are cleared only by the suspended ledger call returning. Persist full pending withdrawal operation records and add retry, finalize, cancel, or reconciliation flows so users cannot remain stuck forever.
 
-- [ ] **High: prevent immediate proposal close griefing.**
+- [x] **High: prevent immediate proposal close griefing.**
   `DaoActorDemo.sr9:260`, `lib/Dao.sr9:1277`, `lib/Dao.sr9:1303`.
   `close(id)` has no caller restriction and no voting period. Store proposal creation time and voting deadline. Allow close only after the deadline, or only when the outcome is mathematically final.
 

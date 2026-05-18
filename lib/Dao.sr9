@@ -7,6 +7,7 @@ import Types "./Types";
 
 module {
   public let UNSTAKE_DELAY_NS : Int = 604_800_000_000_000;
+  public let VOTING_PERIOD_NS : Int = 604_800_000_000_000;
 
   public type Model = {
     governanceLedger : Principal;
@@ -43,6 +44,8 @@ module {
     var proposalNo : Nat;
     var proposalQuorum : Nat;
     var proposalSnapshotStake : Nat;
+    var proposalCreatedAt : Int;
+    var proposalDeadline : Int;
     var proposalStatus : Nat;
     var totalSupply : Nat;
     var totalLiquid : Nat;
@@ -383,6 +386,8 @@ module {
       var proposalNo = 0;
       var proposalQuorum = 0;
       var proposalSnapshotStake = 0;
+      var proposalCreatedAt : Int = 0;
+      var proposalDeadline : Int = 0;
       var proposalStatus = 0;
       var totalSupply = 0;
       var totalLiquid = 0;
@@ -493,6 +498,8 @@ module {
         noVotes = dao.proposalNo;
         quorumVotes = dao.proposalQuorum;
         snapshotActiveStake = dao.proposalSnapshotStake;
+        createdAt = dao.proposalCreatedAt;
+        deadline = dao.proposalDeadline;
         status = statusFromCode(dao.proposalStatus)
       }
     } else {
@@ -1172,6 +1179,8 @@ module {
       case (#ok receipt) {
         receipt.proposer == proposer and
         receipt.snapshotActiveStake == old(totalActiveStake(dao)) and
+        receipt.createdAt == now and
+        receipt.deadline == now + VOTING_PERIOD_NS and
         now >= old(mapGetInt(dao.stakeUnlocks, accountKey(proposer)))
       };
       case (#err(_)) { true }
@@ -1207,13 +1216,17 @@ module {
     dao.proposalNo := 0;
     dao.proposalQuorum := dao.quorumVotes;
     dao.proposalSnapshotStake := dao.totalActiveStake;
+    dao.proposalCreatedAt := now;
+    dao.proposalDeadline := now + VOTING_PERIOD_NS;
     dao.proposalStatus := 0;
     dao.nextProposalId += 1;
     #ok({
       id = id;
       proposer = proposer;
       quorumVotes = dao.quorumVotes;
-      snapshotActiveStake = dao.totalActiveStake
+      snapshotActiveStake = dao.totalActiveStake;
+      createdAt = now;
+      deadline = now + VOTING_PERIOD_NS
     })
   };
 
@@ -1312,7 +1325,8 @@ module {
 
   private func closeImpl(
     dao : State,
-    id : Nat
+    id : Nat,
+    now : Int
   ) : Types.Result<Types.CloseReceipt, Types.CloseError>
     requires true;
     ensures supplyBalanced(dao);
@@ -1335,6 +1349,9 @@ module {
     };
     if (dao.proposalStatus != 0) {
       return #err(#proposalNotOpen)
+    };
+    if (now < dao.proposalDeadline) {
+      return #err(#votingPeriodActive({ now = now; deadline = dao.proposalDeadline }))
     };
     let participated = dao.proposalYes + dao.proposalNo;
     let nextStatus : Types.ProposalStatus = if (
@@ -1653,7 +1670,8 @@ module {
 
   public func close(
     dao : State,
-    id : Nat
+    id : Nat,
+    now : Int
   ) : Types.Result<Types.CloseReceipt, Types.CloseError>
     requires true;
     ensures supplyBalanced(dao);
@@ -1665,7 +1683,7 @@ module {
     ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
     ensures config(dao) == old(config(dao));
   {
-    closeImpl(dao, id)
+    closeImpl(dao, id, now)
   };
 
   public func execute(

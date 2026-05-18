@@ -264,7 +264,8 @@ persistent actor class DaoActorDemo(
     ensures Dao.configValid(dao);
     ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
   {
-    Dao.close(dao, id)
+    let now = Time.now();
+    Dao.close(dao, id, now)
   };
 
   public func execute(id : Nat) : async Result<ExecuteReceipt, ExecuteError>

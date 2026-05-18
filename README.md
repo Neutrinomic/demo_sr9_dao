@@ -57,6 +57,10 @@ Quorum and proposal thresholds are absolute token amounts. Initial zero values
 are normalized to `1`, and governance config actions must keep both values
 nonzero and no larger than the DAO's current accounted token supply.
 
+Proposals have a fixed 7-day voting period. `create_proposal(action)` stores
+the creation time and deadline, and `close(id)` rejects attempts before the
+deadline.
+
 ## Public Actor API
 
 `DaoActorDemo.sr9` exposes:
@@ -131,6 +135,8 @@ The verified contracts prove:
 - successful claims move exactly the matured pending-unstake amount into liquid
   and clear the caller's pending unstake
 - voting and proposal lifecycle transitions preserve token accounting
+- successful proposal creation stores the creation time and a deadline exactly
+  7 days later
 - successful voting proves the voter had not already voted on that proposal,
   marks that voter/proposal pair as voted, and changes proposal totals by
   exactly the receipt weight once
@@ -197,6 +203,6 @@ No trusted Sector9 source was found.
 - No token transfers between DAO users.
 - Adding more stake resets the caller's active-stake voting unlock time.
 - No abstain vote and no vote replacement.
-- No timed proposal window; proposals are closed explicitly.
+- No early close when an outcome is mathematically final; close is deadline-only.
 - No proposal archive beyond the current proposal slot.
 - No execution actions beyond DAO config changes.
