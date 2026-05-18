@@ -1,7 +1,7 @@
 # Sector9 DAO Demo
 
-This is a standalone verified DAO demo written in Sector9. It is not a DEX DAO,
-but its ICRC ledger integration follows the deposit/withdraw shape from the
+This is a standalone verified DAO demo written in Sector9. Its ICRC ledger
+integration follows the deposit/withdraw shape from the
 bundled DEX reference app in `.sr9docs/apps/dex`.
 
 ## How It Works
