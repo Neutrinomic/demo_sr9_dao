@@ -1,8 +1,6 @@
 # Sector9 DAO Demo
 
-This is a standalone verified DAO demo written in Sector9. Its ICRC ledger
-integration follows the deposit/withdraw shape from the
-bundled DEX reference app in `.sr9docs/apps/dex`.
+This is a standalone verified DAO demo written in Sector9.
 
 ## How It Works
 
@@ -78,8 +76,7 @@ before users deposit and stake.
 - `close(id)`
 - `execute(id)`
 
-All state-changing methods delegate to verified transitions in
-`dao/lib/Dao.sr9`.
+All state-changing methods delegate to verified transitions in `lib/Dao.sr9`.
 
 ## What Was Verified And Proven
 
@@ -153,7 +150,7 @@ opaque DAO state through public pure accessors.
 The persistent actor proves `Dao.supplyBalanced(dao)` and `Dao.configValid(dao)`
 across public methods and across ledger awaits.
 
-`dao/proofs/DaoObservers.sr9` adds external observer proofs for deposit,
+`proofs/DaoObservers.sr9` adds external observer proofs for deposit,
 withdraw begin/success/reject, staking, unstaking, claiming, voting, and
 execution preservation properties.
 
@@ -174,16 +171,19 @@ sha256:f5cef482c5ad738582453f1e7f3a1096bbbf1b7b7e5da947f8f468e48c2df03c
 Verification succeeded with:
 
 ```bash
-SECTOR9_RUN_ARGS='-e XDG_CACHE_HOME=/tmp/sector9' ./sr9 --verify --deterministic --cores 1 --verify-timeout-ms 600000 dao/lib/Types.sr9
-SECTOR9_RUN_ARGS='-e XDG_CACHE_HOME=/tmp/sector9' ./sr9 --verify --deterministic --cores 2 --verify-timeout-ms 1200000 dao/lib/Dao.sr9
-SECTOR9_RUN_ARGS='-e XDG_CACHE_HOME=/tmp/sector9' ./sr9 --verify --deterministic --cores 1 --verify-timeout-ms 700000 dao/proofs/DaoObservers.sr9
-SECTOR9_RUN_ARGS='-e XDG_CACHE_HOME=/tmp/sector9' ./sr9 --verify --deterministic --cores 2 --verify-timeout-ms 1200000 dao/DaoActorDemo.sr9
+SR9_IMAGE='ghcr.io/neutrinomic/sr9@sha256:f5cef482c5ad738582453f1e7f3a1096bbbf1b7b7e5da947f8f468e48c2df03c'
+SR9=(docker run --rm -e XDG_CACHE_HOME=/tmp/sector9 --user "$(id -u):$(id -g)" -v "$PWD:/work" -w /work "$SR9_IMAGE")
+
+"${SR9[@]}" --verify --deterministic --cores 1 --verify-timeout-ms 600000 lib/Types.sr9
+"${SR9[@]}" --verify --deterministic --cores 2 --verify-timeout-ms 1200000 lib/Dao.sr9
+"${SR9[@]}" --verify --deterministic --cores 1 --verify-timeout-ms 700000 proofs/DaoObservers.sr9
+"${SR9[@]}" --verify --deterministic --cores 2 --verify-timeout-ms 1200000 DaoActorDemo.sr9
 ```
 
 Source scan:
 
 ```bash
-rg -n "trusted" dao --glob '*.sr9'
+rg -n "trusted" . --glob '*.sr9'
 ```
 
 No trusted Sector9 source was found.
