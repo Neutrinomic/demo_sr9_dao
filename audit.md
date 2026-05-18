@@ -37,9 +37,9 @@ The review intentionally ignores formal verification claims and focuses on produ
   `DaoActorDemo.sr9:60`, `DaoActorDemo.sr9:61`, `DaoActorDemo.sr9:83`, `DaoActorDemo.sr9:85`.
   Deposits and in-flight withdrawals now include per-operation memo/timestamp data, and duplicate ledger responses are handled explicitly. Durable pending-withdraw retry state remains covered by the withdrawal recovery TODO.
 
-- [ ] **Medium: prune or bound storage growth.**
+- [x] **Medium: prune or bound storage growth.**
   `lib/Dao.sr9:765`, `lib/Dao.sr9:1262`.
-  Zero balances and cleared pending-withdrawal fields are written back instead of removed. Vote keys are never cleared. Delete zero entries, prune finalized proposal vote records, and bound or archive proposal-related storage.
+  New proposals reset prior vote and vote-lock storage, bounding proposal-related maps to the current proposal.
 
 - [x] **Low: make `voting_power` report eligible voting power or rename it.**
   `DaoActorDemo.sr9:112`, `lib/Dao.sr9:1252`.

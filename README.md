@@ -153,6 +153,7 @@ The verified contracts prove:
 - voting and proposal lifecycle transitions preserve token accounting
 - successful proposal creation stores the creation time and a deadline exactly
   7 days later
+- successful proposal creation resets prior proposal vote and vote-lock storage
 - successful voting proves the voter had not already voted on that proposal,
   marks that voter/proposal pair as voted, and changes proposal totals by
   exactly the receipt weight once

@@ -1261,6 +1261,10 @@ module {
     };
     let id = dao.nextProposalId;
     let currentConfig = config(dao);
+    let emptyVotes = BMap.empty<Text, Bool>();
+    let emptyVoteLocks = BMap.empty<Text, Nat>();
+    BMap.orderedBy_empty<Text, Bool>(Text.compare);
+    BMap.orderedBy_empty<Text, Nat>(Text.compare);
     dao.hasProposal := true;
     dao.proposalId := id;
     dao.proposalProposer := proposerKey;
@@ -1274,6 +1278,8 @@ module {
     dao.proposalCreatedAt := now;
     dao.proposalDeadline := now + VOTING_PERIOD_NS;
     dao.proposalStatus := 0;
+    dao.votes := emptyVotes;
+    dao.voteLocks := emptyVoteLocks;
     dao.nextProposalId += 1;
     #ok({
       id = id;
