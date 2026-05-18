@@ -535,6 +535,17 @@ module {
     ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
     ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
     ensures mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user)));
+    ensures forall<Text>(pure func (key : Text) : Bool =
+      key != accountKey(user) implies (
+        mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
+        mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
+        mapGetInt(dao.stakeUnlocks, key) == old(mapGetInt(dao.stakeUnlocks, key)) and
+        mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
+        mapGetInt(dao.pendingUnlocks, key) == old(mapGetInt(dao.pendingUnlocks, key)) and
+        mapGetNat(dao.pendingWithdrawAmounts, key) == old(mapGetNat(dao.pendingWithdrawAmounts, key)) and
+        mapGetNat(dao.pendingWithdrawFees, key) == old(mapGetNat(dao.pendingWithdrawFees, key)) and
+        mapGetNat(dao.pendingWithdrawDebits, key) == old(mapGetNat(dao.pendingWithdrawDebits, key))
+      ));
     ensures switch (result) {
       case (#ok receipt) {
         receipt.ledger == ledger and
@@ -572,6 +583,17 @@ module {
     ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
     ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
     ensures mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user)));
+    ensures forall<Text>(pure func (key : Text) : Bool =
+      key != accountKey(user) implies (
+        mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
+        mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
+        mapGetInt(dao.stakeUnlocks, key) == old(mapGetInt(dao.stakeUnlocks, key)) and
+        mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
+        mapGetInt(dao.pendingUnlocks, key) == old(mapGetInt(dao.pendingUnlocks, key)) and
+        mapGetNat(dao.pendingWithdrawAmounts, key) == old(mapGetNat(dao.pendingWithdrawAmounts, key)) and
+        mapGetNat(dao.pendingWithdrawFees, key) == old(mapGetNat(dao.pendingWithdrawFees, key)) and
+        mapGetNat(dao.pendingWithdrawDebits, key) == old(mapGetNat(dao.pendingWithdrawDebits, key))
+      ));
     ensures switch (result) {
       case (#ok(_)) { false };
       case (#err(_)) { true }
@@ -593,6 +615,17 @@ module {
     ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
     ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
     ensures mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user)));
+    ensures forall<Text>(pure func (key : Text) : Bool =
+      key != accountKey(user) implies (
+        mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
+        mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
+        mapGetInt(dao.stakeUnlocks, key) == old(mapGetInt(dao.stakeUnlocks, key)) and
+        mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
+        mapGetInt(dao.pendingUnlocks, key) == old(mapGetInt(dao.pendingUnlocks, key)) and
+        mapGetNat(dao.pendingWithdrawAmounts, key) == old(mapGetNat(dao.pendingWithdrawAmounts, key)) and
+        mapGetNat(dao.pendingWithdrawFees, key) == old(mapGetNat(dao.pendingWithdrawFees, key)) and
+        mapGetNat(dao.pendingWithdrawDebits, key) == old(mapGetNat(dao.pendingWithdrawDebits, key))
+      ));
     ensures switch (result) {
       case (#ok(_)) { false };
       case (#err(_)) { true }
@@ -618,6 +651,17 @@ module {
     ensures governanceLedger(dao) == old(governanceLedger(dao));
     ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
     ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
+    ensures forall<Text>(pure func (key : Text) : Bool =
+      key != accountKey(user) implies (
+        mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
+        mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
+        mapGetInt(dao.stakeUnlocks, key) == old(mapGetInt(dao.stakeUnlocks, key)) and
+        mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
+        mapGetInt(dao.pendingUnlocks, key) == old(mapGetInt(dao.pendingUnlocks, key)) and
+        mapGetNat(dao.pendingWithdrawAmounts, key) == old(mapGetNat(dao.pendingWithdrawAmounts, key)) and
+        mapGetNat(dao.pendingWithdrawFees, key) == old(mapGetNat(dao.pendingWithdrawFees, key)) and
+        mapGetNat(dao.pendingWithdrawDebits, key) == old(mapGetNat(dao.pendingWithdrawDebits, key))
+      ));
     ensures switch (result) {
       case (#ok started) {
         started.ledger == ledger and
@@ -685,6 +729,17 @@ module {
     ensures governanceLedger(dao) == old(governanceLedger(dao));
     ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
     ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
+    ensures forall<Text>(pure func (key : Text) : Bool =
+      key != accountKey(user) implies (
+        mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
+        mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
+        mapGetInt(dao.stakeUnlocks, key) == old(mapGetInt(dao.stakeUnlocks, key)) and
+        mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
+        mapGetInt(dao.pendingUnlocks, key) == old(mapGetInt(dao.pendingUnlocks, key)) and
+        mapGetNat(dao.pendingWithdrawAmounts, key) == old(mapGetNat(dao.pendingWithdrawAmounts, key)) and
+        mapGetNat(dao.pendingWithdrawFees, key) == old(mapGetNat(dao.pendingWithdrawFees, key)) and
+        mapGetNat(dao.pendingWithdrawDebits, key) == old(mapGetNat(dao.pendingWithdrawDebits, key))
+      ));
     ensures switch (result) {
       case (#ok receipt) {
         receipt.ledger == started.ledger and
@@ -741,6 +796,17 @@ module {
     ensures governanceLedger(dao) == old(governanceLedger(dao));
     ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
     ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
+    ensures forall<Text>(pure func (key : Text) : Bool =
+      key != accountKey(user) implies (
+        mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
+        mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
+        mapGetInt(dao.stakeUnlocks, key) == old(mapGetInt(dao.stakeUnlocks, key)) and
+        mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
+        mapGetInt(dao.pendingUnlocks, key) == old(mapGetInt(dao.pendingUnlocks, key)) and
+        mapGetNat(dao.pendingWithdrawAmounts, key) == old(mapGetNat(dao.pendingWithdrawAmounts, key)) and
+        mapGetNat(dao.pendingWithdrawFees, key) == old(mapGetNat(dao.pendingWithdrawFees, key)) and
+        mapGetNat(dao.pendingWithdrawDebits, key) == old(mapGetNat(dao.pendingWithdrawDebits, key))
+      ));
     ensures if (
       old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) > 0 and
       old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) == started.debitAmount and
@@ -775,6 +841,17 @@ module {
     ensures governanceLedger(dao) == old(governanceLedger(dao));
     ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
     ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
+    ensures forall<Text>(pure func (key : Text) : Bool =
+      key != accountKey(user) implies (
+        mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
+        mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
+        mapGetInt(dao.stakeUnlocks, key) == old(mapGetInt(dao.stakeUnlocks, key)) and
+        mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
+        mapGetInt(dao.pendingUnlocks, key) == old(mapGetInt(dao.pendingUnlocks, key)) and
+        mapGetNat(dao.pendingWithdrawAmounts, key) == old(mapGetNat(dao.pendingWithdrawAmounts, key)) and
+        mapGetNat(dao.pendingWithdrawFees, key) == old(mapGetNat(dao.pendingWithdrawFees, key)) and
+        mapGetNat(dao.pendingWithdrawDebits, key) == old(mapGetNat(dao.pendingWithdrawDebits, key))
+      ));
     ensures if (
       old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) > 0 and
       old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) == started.debitAmount and
@@ -808,6 +885,17 @@ module {
     ensures governanceLedger(dao) == old(governanceLedger(dao));
     ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
     ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
+    ensures forall<Text>(pure func (key : Text) : Bool =
+      key != accountKey(user) implies (
+        mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
+        mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
+        mapGetInt(dao.stakeUnlocks, key) == old(mapGetInt(dao.stakeUnlocks, key)) and
+        mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
+        mapGetInt(dao.pendingUnlocks, key) == old(mapGetInt(dao.pendingUnlocks, key)) and
+        mapGetNat(dao.pendingWithdrawAmounts, key) == old(mapGetNat(dao.pendingWithdrawAmounts, key)) and
+        mapGetNat(dao.pendingWithdrawFees, key) == old(mapGetNat(dao.pendingWithdrawFees, key)) and
+        mapGetNat(dao.pendingWithdrawDebits, key) == old(mapGetNat(dao.pendingWithdrawDebits, key))
+      ));
     ensures if (
       old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) > 0 and
       old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user))) == started.debitAmount and
@@ -852,6 +940,17 @@ module {
     ensures config(dao) == old(config(dao));
     ensures mapGetNat(dao.pendingAmounts, accountKey(user)) == old(mapGetNat(dao.pendingAmounts, accountKey(user)));
     ensures mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user)));
+    ensures forall<Text>(pure func (key : Text) : Bool =
+      key != accountKey(user) implies (
+        mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
+        mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
+        mapGetInt(dao.stakeUnlocks, key) == old(mapGetInt(dao.stakeUnlocks, key)) and
+        mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
+        mapGetInt(dao.pendingUnlocks, key) == old(mapGetInt(dao.pendingUnlocks, key)) and
+        mapGetNat(dao.pendingWithdrawAmounts, key) == old(mapGetNat(dao.pendingWithdrawAmounts, key)) and
+        mapGetNat(dao.pendingWithdrawFees, key) == old(mapGetNat(dao.pendingWithdrawFees, key)) and
+        mapGetNat(dao.pendingWithdrawDebits, key) == old(mapGetNat(dao.pendingWithdrawDebits, key))
+      ));
     ensures switch (result) {
       case (#ok receipt) {
         receipt.amount == amount and
@@ -911,6 +1010,17 @@ module {
     ensures config(dao) == old(config(dao));
     ensures mapGetNat(dao.liquid, accountKey(user)) == old(mapGetNat(dao.liquid, accountKey(user)));
     ensures mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user)));
+    ensures forall<Text>(pure func (key : Text) : Bool =
+      key != accountKey(user) implies (
+        mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
+        mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
+        mapGetInt(dao.stakeUnlocks, key) == old(mapGetInt(dao.stakeUnlocks, key)) and
+        mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
+        mapGetInt(dao.pendingUnlocks, key) == old(mapGetInt(dao.pendingUnlocks, key)) and
+        mapGetNat(dao.pendingWithdrawAmounts, key) == old(mapGetNat(dao.pendingWithdrawAmounts, key)) and
+        mapGetNat(dao.pendingWithdrawFees, key) == old(mapGetNat(dao.pendingWithdrawFees, key)) and
+        mapGetNat(dao.pendingWithdrawDebits, key) == old(mapGetNat(dao.pendingWithdrawDebits, key))
+      ));
     ensures switch (result) {
       case (#ok receipt) {
         receipt.amount == amount and
@@ -970,6 +1080,17 @@ module {
     ensures config(dao) == old(config(dao));
     ensures mapGetNat(dao.activeStake, accountKey(user)) == old(mapGetNat(dao.activeStake, accountKey(user)));
     ensures mapGetNat(dao.pendingWithdrawDebits, accountKey(user)) == old(mapGetNat(dao.pendingWithdrawDebits, accountKey(user)));
+    ensures forall<Text>(pure func (key : Text) : Bool =
+      key != accountKey(user) implies (
+        mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
+        mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
+        mapGetInt(dao.stakeUnlocks, key) == old(mapGetInt(dao.stakeUnlocks, key)) and
+        mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
+        mapGetInt(dao.pendingUnlocks, key) == old(mapGetInt(dao.pendingUnlocks, key)) and
+        mapGetNat(dao.pendingWithdrawAmounts, key) == old(mapGetNat(dao.pendingWithdrawAmounts, key)) and
+        mapGetNat(dao.pendingWithdrawFees, key) == old(mapGetNat(dao.pendingWithdrawFees, key)) and
+        mapGetNat(dao.pendingWithdrawDebits, key) == old(mapGetNat(dao.pendingWithdrawDebits, key))
+      ));
     ensures switch (result) {
       case (#ok receipt) {
         receipt.amount == old(mapGetNat(dao.pendingAmounts, accountKey(user))) and
