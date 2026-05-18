@@ -53,9 +53,9 @@ The 7-day cooldown is:
 604_800_000_000_000
 ```
 
-Quorum and proposal thresholds are absolute token amounts. They are not capped
-by current deposits, so the DAO can launch with meaningful governance settings
-before users deposit and stake.
+Quorum and proposal thresholds are absolute token amounts. Initial zero values
+are normalized to `1`, and governance config actions must keep both values
+nonzero and no larger than the DAO's current accounted token supply.
 
 ## Public Actor API
 
@@ -140,7 +140,9 @@ The verified contracts prove:
   pending-withdraw state
 - proposal creation, voting, closing, and execution preserve every account key's
   liquid, active-stake, pending-unstake, and pending-withdraw amounts
-- config thresholds are absolute values and are not bounded by current deposits
+- config validity keeps quorum and proposal-threshold values nonzero
+- governance config actions cannot set quorum or proposal-threshold values
+  above the DAO's current accounted token supply
 
 `Dao.sr9` keeps rich per-user contracts on private implementation functions and
 uses public wrappers with import-safe aggregate contracts. This avoids a current

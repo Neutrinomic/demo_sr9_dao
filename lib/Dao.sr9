@@ -60,6 +60,8 @@ module {
     invariant BMap.orderedBy<Text, Nat>(pendingWithdrawFees, Text.compare);
     invariant BMap.orderedBy<Text, Nat>(pendingWithdrawDebits, Text.compare);
     invariant BMap.orderedBy<Text, Bool>(votes, Text.compare);
+    invariant quorumVotes > 0;
+    invariant proposalThreshold > 0;
     invariant totalLiquid + totalActiveStake + totalPendingUnstake + totalPendingWithdraw ==
       totalSupply
   };
@@ -104,11 +106,35 @@ module {
       model(dao).totalSupply
   };
 
-  public pure func configValid(_dao : State) : Bool
+  private pure func configValueValid(value : Nat) : Bool
     requires true;
-    ensures result == true;
+    ensures result == (value > 0);
   {
-    true
+    value > 0
+  };
+
+  private pure func normalizeConfigValue(value : Nat) : Nat
+    requires true;
+    ensures result > 0;
+    ensures value > 0 implies result == value;
+    ensures value == 0 implies result == 1;
+  {
+    if (value == 0) {
+      1
+    } else {
+      value
+    }
+  };
+
+  public pure func configValid(dao : State) : Bool
+    requires true;
+    ensures result == (
+      configValueValid(dao.quorumVotes) and
+      configValueValid(dao.proposalThreshold)
+    );
+  {
+    configValueValid(dao.quorumVotes) and
+      configValueValid(dao.proposalThreshold)
   };
 
   public pure func governanceLedger(dao : State) : Principal
@@ -312,9 +338,11 @@ module {
     ensures totalActiveStake(result) == 0;
     ensures totalPendingUnstake(result) == 0;
     ensures totalPendingWithdraw(result) == 0;
-    ensures config(result).quorumVotes == quorumVotes;
-    ensures config(result).proposalThreshold == proposalThreshold;
+    ensures config(result).quorumVotes == normalizeConfigValue(quorumVotes);
+    ensures config(result).proposalThreshold == normalizeConfigValue(proposalThreshold);
   {
+    let safeQuorumVotes = normalizeConfigValue(quorumVotes);
+    let safeProposalThreshold = normalizeConfigValue(proposalThreshold);
     let liquid = BMap.empty<Text, Nat>();
     let activeStake = BMap.empty<Text, Nat>();
     let stakeUnlocks = BMap.empty<Text, Int>();
@@ -361,8 +389,8 @@ module {
       var totalActiveStake = 0;
       var totalPendingUnstake = 0;
       var totalPendingWithdraw = 0;
-      var quorumVotes = quorumVotes;
-      var proposalThreshold = proposalThreshold
+      var quorumVotes = safeQuorumVotes;
+      var proposalThreshold = safeProposalThreshold
     }
   };
 
@@ -472,11 +500,19 @@ module {
     }
   };
 
-  public pure func actionValid(_action : Types.ConfigAction, _supply : Nat) : Bool
+  public pure func actionValid(config : Types.Config, action : Types.ConfigAction, supply : Nat) : Bool
     requires true;
-    ensures result == true;
+    ensures result == (
+      configValueValid(actionQuorum(config, action)) and
+      configValueValid(actionThreshold(config, action)) and
+      actionQuorum(config, action) <= supply and
+      actionThreshold(config, action) <= supply
+    );
   {
-    true
+    configValueValid(actionQuorum(config, action)) and
+      configValueValid(actionThreshold(config, action)) and
+      actionQuorum(config, action) <= supply and
+      actionThreshold(config, action) <= supply
   };
 
   private pure func applyAction(config : Types.Config, action : Types.ConfigAction) : Types.Config
@@ -1156,7 +1192,7 @@ module {
     if (proposerStake < dao.proposalThreshold) {
       return #err(#proposalThresholdNotMet)
     };
-    if (not actionValid(action, dao.totalSupply)) {
+    if (not actionValid(config(dao), action, dao.totalSupply)) {
       return #err(#invalidConfigAction)
     };
     let id = dao.nextProposalId;
@@ -1351,7 +1387,7 @@ module {
       dao.proposalActionQuorum,
       dao.proposalActionThreshold
     );
-    if (not actionValid(action, dao.totalSupply)) {
+    if (not actionValid(config(dao), action, dao.totalSupply)) {
       return #err(#invalidConfigAction)
     };
     let nextConfig = applyAction(config(dao), action);
