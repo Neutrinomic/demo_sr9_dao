@@ -43,7 +43,8 @@ Voting power still requires staking:
 - `voting_power(user)` returns active stake; `stake_info(user)` includes
   `votingPowerUnlockAt` so callers can tell when active stake becomes eligible.
 - `request_unstake(amount)` removes voting power immediately and starts the
-  7-day cooldown.
+  7-day cooldown, except stake already used to vote stays locked while that
+  proposal is open.
 - `claim_unstaked()` moves matured pending unstake back to liquid balance.
 - Only claimed liquid balance can be withdrawn.
 
@@ -140,6 +141,8 @@ The verified contracts prove:
 - successful voting proves the voter had not already voted on that proposal,
   marks that voter/proposal pair as voted, and changes proposal totals by
   exactly the receipt weight once
+- successful voting locks the exact vote weight against unstaking while the
+  proposal is open
 - successful deposits, withdrawal staging/success, staking, unstaking,
   claiming, and the shared withdrawal-failure restore step preserve every other
   account key's liquid, active-stake, voting-lock, pending-unstake, and

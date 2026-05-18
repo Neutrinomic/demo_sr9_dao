@@ -33,6 +33,7 @@ module {
     var pendingWithdrawFees : BMap.BMap<Text, Nat>;
     var pendingWithdrawDebits : BMap.BMap<Text, Nat>;
     var votes : BMap.BMap<Text, Bool>;
+    var voteLocks : BMap.BMap<Text, Nat>;
     var nextProposalId : Nat;
     var hasProposal : Bool;
     var proposalId : Nat;
@@ -63,6 +64,7 @@ module {
     invariant BMap.orderedBy<Text, Nat>(pendingWithdrawFees, Text.compare);
     invariant BMap.orderedBy<Text, Nat>(pendingWithdrawDebits, Text.compare);
     invariant BMap.orderedBy<Text, Bool>(votes, Text.compare);
+    invariant BMap.orderedBy<Text, Nat>(voteLocks, Text.compare);
     invariant quorumVotes > 0;
     invariant proposalThreshold > 0;
     invariant totalLiquid + totalActiveStake + totalPendingUnstake + totalPendingWithdraw ==
@@ -260,6 +262,16 @@ module {
     NatCore.toText(id) # ":" # Principal.toText(user)
   };
 
+  private pure func openVoteLock(dao : State, user : Principal) : Nat
+    requires true;
+  {
+    if (dao.hasProposal and dao.proposalStatus == 0) {
+      mapGetNat(dao.voteLocks, voteKey(dao.proposalId, user))
+    } else {
+      0
+    }
+  };
+
   private pure func statusFromCode(code : Nat) : Types.ProposalStatus
     requires true;
   {
@@ -355,6 +367,7 @@ module {
     let pendingWithdrawFees = BMap.empty<Text, Nat>();
     let pendingWithdrawDebits = BMap.empty<Text, Nat>();
     let votes = BMap.empty<Text, Bool>();
+    let voteLocks = BMap.empty<Text, Nat>();
     BMap.orderedBy_empty<Text, Nat>(Text.compare);
     BMap.orderedBy_empty<Text, Nat>(Text.compare);
     BMap.orderedBy_empty<Text, Int>(Text.compare);
@@ -364,6 +377,7 @@ module {
     BMap.orderedBy_empty<Text, Nat>(Text.compare);
     BMap.orderedBy_empty<Text, Nat>(Text.compare);
     BMap.orderedBy_empty<Text, Bool>(Text.compare);
+    BMap.orderedBy_empty<Text, Nat>(Text.compare);
     {
       var governanceLedger = ledgerPrincipal;
       var liquid = liquid;
@@ -375,6 +389,7 @@ module {
       var pendingWithdrawFees = pendingWithdrawFees;
       var pendingWithdrawDebits = pendingWithdrawDebits;
       var votes = votes;
+      var voteLocks = voteLocks;
       var nextProposalId = 0;
       var hasProposal = false;
       var proposalId = 0;
@@ -1069,6 +1084,16 @@ module {
     if (dao.totalActiveStake < amount) {
       return #err(#insufficientActiveStake)
     };
+    let lockedVoteStake = openVoteLock(dao, user);
+    if (stakeBefore < lockedVoteStake) {
+      return #err(#insufficientActiveStake)
+    };
+    if (stakeBefore < lockedVoteStake + amount) {
+      return #err(#stakeLockedForVote({
+        activeStake = stakeBefore;
+        lockedStake = lockedVoteStake
+      }))
+    };
     if (mapGetNat(dao.pendingAmounts, key) > 0) {
       return #err(#unstakeAlreadyPending)
     };
@@ -1271,6 +1296,7 @@ module {
         now >= old(mapGetInt(dao.stakeUnlocks, accountKey(voter))) and
         not old(mapGetBool(dao.votes, voteKey(id, voter))) and
         mapGetBool(dao.votes, voteKey(id, voter)) and
+        mapGetNat(dao.voteLocks, voteKey(id, voter)) == receipt.weight and
         receipt.yesVotes == dao.proposalYes and
         receipt.noVotes == dao.proposalNo and
         (switch (choice) {
@@ -1309,6 +1335,8 @@ module {
     };
     assert BMap.orderedBy<Text, Bool>(dao.votes, Text.compare);
     dao.votes := putVote(dao.votes, vk);
+    assert BMap.orderedBy<Text, Nat>(dao.voteLocks, Text.compare);
+    dao.voteLocks := putNat(dao.voteLocks, vk, weight);
     switch (choice) {
       case (#yes) { dao.proposalYes += weight };
       case (#no) { dao.proposalNo += weight }

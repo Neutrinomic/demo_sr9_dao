@@ -150,6 +150,7 @@ module {
   public type UnstakeError = {
     #zeroAmount;
     #insufficientActiveStake;
+    #stakeLockedForVote : { activeStake : Nat; lockedStake : Nat };
     #unstakeAlreadyPending;
     #noPendingUnstake;
     #cooldownActive : { now : Int; unlockAt : Int }

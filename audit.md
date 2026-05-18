@@ -25,7 +25,7 @@ The review intentionally ignores formal verification claims and focuses on produ
   `DaoActorDemo.sr9:260`, `lib/Dao.sr9:1277`, `lib/Dao.sr9:1303`.
   `close(id)` has no caller restriction and no voting period. Store proposal creation time and voting deadline. Allow close only after the deadline, or only when the outcome is mathematically final.
 
-- [ ] **High: make vote weight safe against stake recycling.**
+- [x] **High: make vote weight safe against stake recycling.**
   `lib/Dao.sr9:1173`, `lib/Dao.sr9:1248`, `lib/Dao.sr9:978`.
   `proposalSnapshotStake` is recorded but not used to compute votes. Use proposal-time snapshots or lock the exact stake used for voting until proposal finalization so the same tokens cannot vote again through another principal while a proposal is open.
 
