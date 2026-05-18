@@ -193,6 +193,15 @@ module {
     }
   };
 
+  private pure func mapGetBool(map : BMap.BMap<Text, Bool>, key : Text) : Bool
+    requires true;
+  {
+    switch (BMap.get<Text, Bool>(map, Text.compare, key)) {
+      case (?value) { value };
+      case null { false }
+    }
+  };
+
   private func putNat(map : BMap.BMap<Text, Nat>, key : Text, value : Nat) : BMap.BMap<Text, Nat>
     requires BMap.orderedBy<Text, Nat>(map, Text.compare);
     ensures BMap.orderedBy<Text, Nat>(result, Text.compare);
@@ -214,7 +223,7 @@ module {
     BMap.add<Text, Bool>(map, Text.compare, key, true)
   };
 
-  private func voteKey(id : Nat, user : Principal) : Text
+  private pure func voteKey(id : Nat, user : Principal) : Text
     requires true;
   {
     NatCore.toText(id) # ":" # Principal.toText(user)
@@ -1060,6 +1069,34 @@ module {
       mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
       mapGetNat(dao.pendingWithdrawDebits, key) ==
         old(mapGetNat(dao.pendingWithdrawDebits, key)));
+    ensures old(mapGetBool(dao.votes, voteKey(id, voter))) implies (switch (result) {
+      case (#ok(_)) { false };
+      case (#err(_)) { true }
+    });
+    ensures switch (result) {
+      case (#ok receipt) {
+        receipt.id == id and
+        receipt.voter == voter and
+        receipt.choice == choice and
+        receipt.weight == old(mapGetNat(dao.activeStake, accountKey(voter))) and
+        receipt.weight > 0 and
+        not old(mapGetBool(dao.votes, voteKey(id, voter))) and
+        mapGetBool(dao.votes, voteKey(id, voter)) and
+        receipt.yesVotes == dao.proposalYes and
+        receipt.noVotes == dao.proposalNo and
+        (switch (choice) {
+          case (#yes) {
+            dao.proposalYes == old(dao.proposalYes) + receipt.weight and
+            dao.proposalNo == old(dao.proposalNo)
+          };
+          case (#no) {
+            dao.proposalYes == old(dao.proposalYes) and
+            dao.proposalNo == old(dao.proposalNo) + receipt.weight
+          }
+        })
+      };
+      case (#err(_)) { true }
+    };
   {
     if (not dao.hasProposal or id != dao.proposalId) {
       return #err(#proposalNotFound)
