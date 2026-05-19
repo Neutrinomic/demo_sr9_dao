@@ -2,6 +2,29 @@
 
 This is a standalone verified DAO demo written in Sector9.
 
+## Executive Summary
+
+This DAO holds real ICRC governance tokens in the DAO canister account and
+tracks each user's deposited balance locally. Users deposit through ICRC-2,
+stake deposited tokens, wait 7 days for voting power to mature, and then create
+or vote on governance proposals. Voting uses mature active stake, and stake used
+to vote remains locked from unstaking while the proposal is open.
+
+Withdrawals send real tokens back through ICRC-1. The DAO moves `amount + fee`
+into pending withdrawal state before the ledger transfer, finalizes on success,
+refunds only deterministic non-execution errors, and leaves ambiguous outcomes
+pending for retry or reconciliation. A separate `WithdrawalOps` module stores
+the retry operation data so the same memo and `created_at_time` can be
+resubmitted.
+
+The verified core proves local accounting conservation, stake and unstake
+movement, voting-lock behavior, proposal deadlines, config bounds, bounded
+proposal vote storage, and withdrawal retry bookkeeping. The remaining
+production assumptions are operational: the configured governance ledger is
+trusted, users deposit through the DAO flow, direct token transfers are
+unsupported, and deployment/upgrade/reconciliation procedures are outside this
+demo.
+
 ## How It Works
 
 `DaoActorDemo` is deployed with:
