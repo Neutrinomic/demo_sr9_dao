@@ -6,6 +6,7 @@ import Runtime "mo:core/Runtime";
 import Text "mo:core/Text";
 import Time "mo:core/Time";
 import Types "./lib/Types";
+import WithdrawalOps "./lib/WithdrawalOps";
 
 persistent actor class DaoActorDemo(
   governanceLedger : Principal,
@@ -16,6 +17,7 @@ persistent actor class DaoActorDemo(
   public type Config = Types.Config;
   public type ConfigAction = Types.ConfigAction;
   public type Proposal = Types.Proposal;
+  public type PendingWithdrawal = Types.PendingWithdrawal;
   public type StakeInfo = Types.StakeInfo;
   public type VoteChoice = Types.VoteChoice;
   public type DepositReceipt = Types.DepositReceipt;
@@ -41,9 +43,11 @@ persistent actor class DaoActorDemo(
     initialQuorumVotes,
     initialProposalThreshold
   );
+  var withdrawOps : WithdrawalOps.State = WithdrawalOps.init();
 
   invariant Dao.supplyBalanced(dao);
   invariant Dao.configValid(dao);
+  invariant WithdrawalOps.valid(withdrawOps);
 
   private let NAT64_MAX : Nat = 18_446_744_073_709_551_615;
 
@@ -160,6 +164,12 @@ persistent actor class DaoActorDemo(
     Dao.stakeInfo(dao, user)
   };
 
+  public query func pending_withdrawal(user : Principal) : async ?PendingWithdrawal
+    reads withdrawOps
+  {
+    WithdrawalOps.pending(withdrawOps, user)
+  };
+
   public query func proposal(id : Nat) : async ?Proposal
     reads dao
   {
@@ -210,9 +220,10 @@ persistent actor class DaoActorDemo(
     amount : Nat
   ) : async Result<WithdrawReceipt, WithdrawError>
     reads governanceLedger
-    modifies dao
+    modifies dao, withdrawOps
     ensures Dao.supplyBalanced(dao);
     ensures Dao.configValid(dao);
+    ensures WithdrawalOps.valid(withdrawOps);
   {
     let ledger = governanceLedger;
     let remote = ICRCLedger.fromPrincipal(ledger);
@@ -220,28 +231,124 @@ persistent actor class DaoActorDemo(
       let fee = await remote.icrc1_fee();
       let ledgerTime = ledgerCreatedAtTime();
       let createdAtTime = ledgerCreatedAtTimeNat(ledgerTime);
-      switch (Dao.beginWithdraw(dao, caller, ledger, amount, fee, createdAtTime)) {
+      switch (WithdrawalOps.begin(withdrawOps, caller, ledger, amount, fee, createdAtTime)) {
         case (#err err) { #err(err) };
-        case (#ok started) {
-          assert started.debitAmount == started.amount + started.fee;
-          let args = withdrawTransferArgs(caller, started);
-          try {
-            let result = await remote.icrc1_transfer(args);
-            switch (result) {
-              case (#Ok txIndex) {
-                Dao.finishWithdrawOk(dao, caller, started, txIndex)
+        case (#ok opStarted) {
+          switch (Dao.beginWithdraw(dao, caller, ledger, amount, fee, createdAtTime)) {
+            case (#err err) {
+              switch (WithdrawalOps.clear(withdrawOps, caller, opStarted)) {
+                case (_) {}
               };
-              case (#Err err) {
-                Dao.finishWithdrawErr(dao, caller, started, err)
+              #err(err)
+            };
+            case (#ok started) {
+              assert started.debitAmount == started.amount + started.fee;
+              let args = withdrawTransferArgs(caller, started);
+              try {
+                let result = await remote.icrc1_transfer(args);
+                switch (result) {
+                  case (#Ok txIndex) {
+                    switch (Dao.finishWithdrawOk(dao, caller, started, txIndex)) {
+                      case (#ok receipt) {
+                        switch (WithdrawalOps.clear(withdrawOps, caller, started)) {
+                          case (_) {}
+                        };
+                        #ok(receipt)
+                      };
+                      case (#err err) { #err(err) }
+                    }
+                  };
+                  case (#Err err) {
+                    switch (Dao.finishWithdrawErr(dao, caller, started, err)) {
+                      case (#ok receipt) {
+                        switch (WithdrawalOps.clear(withdrawOps, caller, started)) {
+                          case (_) {}
+                        };
+                        #ok(receipt)
+                      };
+                      case (#err withdrawErr) {
+                        switch (withdrawErr) {
+                          case (#ledgerTransferErr(_)) {
+                            switch (WithdrawalOps.clear(withdrawOps, caller, started)) {
+                              case (_) {}
+                            }
+                          };
+                          case (_) {}
+                        };
+                        #err(withdrawErr)
+                      }
+                    }
+                  }
+                }
+              } catch (_) {
+                Dao.finishWithdrawReject(dao, caller, started, ledgerReject())
               }
             }
-          } catch (_) {
-            Dao.finishWithdrawReject(dao, caller, started, ledgerReject())
           }
         }
       }
     } catch (_) {
       #err(#ledgerFeeRejected(ledgerReject()))
+    }
+  };
+
+  public shared({ caller }) func retry_withdrawal() : async Result<WithdrawReceipt, WithdrawError>
+    reads governanceLedger
+    modifies dao, withdrawOps
+    ensures Dao.supplyBalanced(dao);
+    ensures Dao.configValid(dao);
+    ensures WithdrawalOps.valid(withdrawOps);
+  {
+    let ledger = governanceLedger;
+    let remote = ICRCLedger.fromPrincipal(ledger);
+    switch (WithdrawalOps.retryStart(withdrawOps, caller, ledger)) {
+      case (#err err) { #err(err) };
+      case (#ok started) {
+        if (started.createdAtTime > NAT64_MAX) {
+          return #err(#noPendingWithdrawal)
+        };
+        assert started.debitAmount == started.amount + started.fee;
+        let args = withdrawTransferArgs(caller, started);
+        try {
+          let result = await remote.icrc1_transfer(args);
+          switch (result) {
+            case (#Ok txIndex) {
+              switch (Dao.finishWithdrawOk(dao, caller, started, txIndex)) {
+                case (#ok receipt) {
+                  switch (WithdrawalOps.clear(withdrawOps, caller, started)) {
+                    case (_) {}
+                  };
+                  #ok(receipt)
+                };
+                case (#err err) { #err(err) }
+              }
+            };
+            case (#Err err) {
+              switch (Dao.finishWithdrawErr(dao, caller, started, err)) {
+                case (#ok receipt) {
+                  switch (WithdrawalOps.clear(withdrawOps, caller, started)) {
+                    case (_) {}
+                  };
+                  #ok(receipt)
+                };
+                case (#err withdrawErr) {
+                  switch (withdrawErr) {
+                    case (#ledgerTransferErr(_)) {
+                      switch (WithdrawalOps.clear(withdrawOps, caller, started)) {
+                        case (_) {}
+                      }
+                    };
+                    case (_) {}
+                  };
+                  #err(withdrawErr)
+                }
+              }
+            }
+          }
+        } catch (_) {
+          Dao.finishWithdrawReject(dao, caller, started, ledgerReject())
+        }
+      }
     }
   };
 

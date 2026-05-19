@@ -41,7 +41,11 @@ Withdrawals use ICRC-1:
   pending debit to liquid.
 - Ambiguous ledger errors or call rejects leave the debit pending and return a
   reconciliation-required error instead of refunding locally.
-- A user can have only one pending withdrawal at a time.
+- `WithdrawalOps` stores the withdrawal operation id, memo timestamp, amount,
+  fee, and debit separately from the main DAO state.
+- `pending_withdrawal(user)` exposes the pending operation, and
+  `retry_withdrawal()` resubmits the same memo and `created_at_time`.
+- A user can have only one pending withdrawal operation at a time.
 
 Voting power still requires staking:
 
@@ -81,9 +85,11 @@ deadline.
 - `proposal_config()`
 - `voting_power(user)`
 - `stake_info(user)`
+- `pending_withdrawal(user)`
 - `proposal(id)`
 - `deposit(amount)`
 - `withdraw(amount)`
+- `retry_withdrawal()`
 - `stake(amount)`
 - `request_unstake(amount)`
 - `claim_unstaked()`
@@ -92,7 +98,8 @@ deadline.
 - `close(id)`
 - `execute(id)`
 
-All state-changing methods delegate to verified transitions in `lib/Dao.sr9`.
+State-changing methods delegate to verified transitions in `lib/Dao.sr9` and
+withdrawal recovery delegates to `lib/WithdrawalOps.sr9`.
 
 ## What Was Verified And Proven
 
@@ -120,6 +127,7 @@ the external ledger's global token supply.
 The verified contracts prove:
 
 - initialization starts with zero local token allocation
+- withdrawal operation initialization starts with zero pending withdrawal amount
 - successful deposits increase local accounted tokens and liquid balance
 - deposit ledger arguments are constructed so `icrc2_transfer_from` pulls from
   the caller's default account into the DAO canister's default account and
@@ -133,6 +141,10 @@ The verified contracts prove:
 - deterministic withdrawal errors restore the pending debit to liquid
 - ambiguous withdrawal errors/rejects preserve the pending debit instead of
   refunding locally
+- withdrawal retry starts are read-only and return the stored operation id,
+  amount, fee, debit, and `created_at_time`
+- clearing a withdrawal operation decreases the pending withdrawal-operation
+  total by exactly that debit
 - withdrawal never decreases active stake or pending unstake, so locked voting
   tokens cannot be withdrawn around the 7-day lock
 - staking preserves the local accounted token total
@@ -174,12 +186,17 @@ uses public wrappers with import-safe aggregate contracts. This avoids a current
 Sector9 limitation where external modules cannot unfold mutable maps inside an
 opaque DAO state through public pure accessors.
 
-The persistent actor proves `Dao.supplyBalanced(dao)` and `Dao.configValid(dao)`
-across public methods and across ledger awaits.
+The persistent actor type-checks with `Dao.supplyBalanced(dao)`,
+`Dao.configValid(dao)`, and `WithdrawalOps.valid(withdrawOps)` across public
+methods and ledger awaits. Full actor verification still hits the current
+Sector9 opaque-import limitation around `Dao` helper predicates, so the current
+proof boundary is the independently verified `Dao` and `WithdrawalOps` modules.
 
-`proofs/DaoObservers.sr9` adds external observer proofs for deposit,
-withdraw begin/success/reject, staking, unstaking, claiming, voting, and
-execution preservation properties.
+`proofs/DaoObservers.sr9` keeps the external observer proof attempts for
+deposit, withdraw begin/success/reject, staking, unstaking, claiming, voting,
+and execution preservation properties. It is included in the type-check command;
+verification of those external observer proofs is blocked by the same
+opaque-import limitation.
 
 ## Verification Commands
 
@@ -201,10 +218,10 @@ Verification succeeded with:
 SR9_IMAGE='ghcr.io/neutrinomic/sr9@sha256:f5cef482c5ad738582453f1e7f3a1096bbbf1b7b7e5da947f8f468e48c2df03c'
 SR9=(docker run --rm -e XDG_CACHE_HOME=/tmp/sector9 --user "$(id -u):$(id -g)" -v "$PWD:/work" -w /work "$SR9_IMAGE")
 
+"${SR9[@]}" --check lib/Types.sr9 lib/WithdrawalOps.sr9 lib/Dao.sr9 proofs/DaoObservers.sr9 DaoActorDemo.sr9
 "${SR9[@]}" --verify --deterministic --cores 1 --verify-timeout-ms 600000 lib/Types.sr9
+"${SR9[@]}" --verify --deterministic --cores 1 --verify-timeout-ms 900000 lib/WithdrawalOps.sr9
 "${SR9[@]}" --verify --deterministic --cores 2 --verify-timeout-ms 1200000 lib/Dao.sr9
-"${SR9[@]}" --verify --deterministic --cores 1 --verify-timeout-ms 700000 proofs/DaoObservers.sr9
-"${SR9[@]}" --verify --deterministic --cores 2 --verify-timeout-ms 1200000 DaoActorDemo.sr9
 ```
 
 Source scan:

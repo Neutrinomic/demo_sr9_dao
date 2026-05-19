@@ -49,9 +49,11 @@ module {
   };
 
   public type PendingWithdrawal = {
+    operationId : Nat;
     amount : Nat;
     fee : Nat;
-    debitAmount : Nat
+    debitAmount : Nat;
+    createdAtTime : Nat
   };
 
   public type DepositReceipt = {
@@ -139,6 +141,7 @@ module {
   public type WithdrawError = {
     #zeroAmount;
     #withdrawInProgress;
+    #noPendingWithdrawal;
     #insufficientLiquidBalance;
     #ledgerFeeRejected : LedgerReject;
     #ledgerTransferErr : ICRCLedger.TransferError;

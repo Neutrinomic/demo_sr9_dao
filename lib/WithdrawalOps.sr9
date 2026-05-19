@@ -1,0 +1,246 @@
+import BMap "mo:core/pure/BMap";
+import ICRCLedger "mo:core/pattern/ICRCLedger";
+import Principal "mo:core/Principal";
+import Text "mo:core/Text";
+import Types "./Types";
+
+module {
+  public type Model = {
+    totalPending : Nat
+  };
+
+  public type State = opaque {
+    var amounts : BMap.BMap<Text, Nat>;
+    var fees : BMap.BMap<Text, Nat>;
+    var debits : BMap.BMap<Text, Nat>;
+    var createdAtTimes : BMap.BMap<Text, Nat>;
+    var totalPending : Nat;
+    invariant BMap.orderedBy<Text, Nat>(amounts, Text.compare);
+    invariant BMap.orderedBy<Text, Nat>(fees, Text.compare);
+    invariant BMap.orderedBy<Text, Nat>(debits, Text.compare);
+    invariant BMap.orderedBy<Text, Nat>(createdAtTimes, Text.compare)
+  };
+
+  public pure func model(state : State) : Model
+    requires true;
+    ensures result.totalPending == state.totalPending;
+  {
+    { totalPending = state.totalPending }
+  };
+
+  public pure func valid(_state : State) : Bool
+    requires true;
+    ensures result == true;
+  {
+    true
+  };
+
+  public pure func totalPending(state : State) : Nat
+    requires true;
+    ensures result == state.totalPending;
+  {
+    state.totalPending
+  };
+
+  public pure func accountKey(user : Principal) : Text
+    requires true;
+  {
+    Principal.toText(user)
+  };
+
+  private pure func mapGetNat(map : BMap.BMap<Text, Nat>, key : Text) : Nat
+    requires true;
+  {
+    switch (BMap.get<Text, Nat>(map, Text.compare, key)) {
+      case (?amount) { amount };
+      case null { 0 }
+    }
+  };
+
+  private func putNat(map : BMap.BMap<Text, Nat>, key : Text, value : Nat) : BMap.BMap<Text, Nat>
+    requires BMap.orderedBy<Text, Nat>(map, Text.compare);
+    ensures BMap.orderedBy<Text, Nat>(result, Text.compare);
+  {
+    BMap.add<Text, Nat>(map, Text.compare, key, value)
+  };
+
+  public func init() : State
+    requires true;
+    ensures valid(result);
+    ensures totalPending(result) == 0;
+  {
+    let amounts = BMap.empty<Text, Nat>();
+    let fees = BMap.empty<Text, Nat>();
+    let debits = BMap.empty<Text, Nat>();
+    let createdAtTimes = BMap.empty<Text, Nat>();
+    BMap.orderedBy_empty<Text, Nat>(Text.compare);
+    BMap.orderedBy_empty<Text, Nat>(Text.compare);
+    BMap.orderedBy_empty<Text, Nat>(Text.compare);
+    BMap.orderedBy_empty<Text, Nat>(Text.compare);
+    {
+      var amounts = amounts;
+      var fees = fees;
+      var debits = debits;
+      var createdAtTimes = createdAtTimes;
+      var totalPending = 0
+    }
+  };
+
+  public func pending(state : State, user : Principal) : ?Types.PendingWithdrawal
+    requires true;
+    ensures model(state) == old(model(state));
+  {
+    let key = accountKey(user);
+    let debitAmount = mapGetNat(state.debits, key);
+    if (debitAmount == 0) {
+      null
+    } else {
+      let createdAtTime = mapGetNat(state.createdAtTimes, key);
+      ?{
+        operationId = createdAtTime;
+        amount = mapGetNat(state.amounts, key);
+        fee = mapGetNat(state.fees, key);
+        debitAmount = debitAmount;
+        createdAtTime = createdAtTime
+      }
+    }
+  };
+
+  public func pendingDebit(state : State, user : Principal) : Nat
+    requires true;
+    ensures model(state) == old(model(state));
+  {
+    mapGetNat(state.debits, accountKey(user))
+  };
+
+  public func retryStart(
+    state : State,
+    user : Principal,
+    ledger : Principal
+  ) : Types.Result<Types.WithdrawStarted, Types.WithdrawError>
+    requires true;
+    ensures model(state) == old(model(state));
+  {
+    let key = accountKey(user);
+    let debitAmount = mapGetNat(state.debits, key);
+    if (debitAmount == 0) {
+      return #err(#noPendingWithdrawal)
+    };
+    let amount = mapGetNat(state.amounts, key);
+    let fee = mapGetNat(state.fees, key);
+    if (debitAmount != amount + fee) {
+      return #err(#noPendingWithdrawal)
+    };
+    let createdAtTime = mapGetNat(state.createdAtTimes, key);
+    #ok({
+      operationId = createdAtTime;
+      ledger = ledger;
+      amount = amount;
+      fee = fee;
+      debitAmount = debitAmount;
+      createdAtTime = createdAtTime
+    })
+  };
+
+  public func begin(
+    state : State,
+    user : Principal,
+    ledger : Principal,
+    amount : Nat,
+    fee : Nat,
+    createdAtTime : Nat
+  ) : Types.Result<Types.WithdrawStarted, Types.WithdrawError>
+    requires true;
+    ensures valid(state);
+    ensures switch (result) {
+      case (#ok started) {
+        totalPending(state) == old(totalPending(state)) + started.debitAmount and
+        started.operationId == createdAtTime and
+        started.ledger == ledger and
+        started.amount == amount and
+        started.fee == fee and
+        started.debitAmount == amount + fee and
+        started.createdAtTime == createdAtTime
+      };
+      case (#err(_)) {
+        totalPending(state) == old(totalPending(state))
+      }
+    };
+  {
+    if (amount == 0) {
+      return #err(#zeroAmount)
+    };
+    let key = accountKey(user);
+    if (mapGetNat(state.debits, key) > 0) {
+      return #err(#withdrawInProgress)
+    };
+    let debitAmount = amount + fee;
+    assert BMap.orderedBy<Text, Nat>(state.amounts, Text.compare);
+    state.amounts := putNat(state.amounts, key, amount);
+    assert BMap.orderedBy<Text, Nat>(state.fees, Text.compare);
+    state.fees := putNat(state.fees, key, fee);
+    assert BMap.orderedBy<Text, Nat>(state.debits, Text.compare);
+    state.debits := putNat(state.debits, key, debitAmount);
+    assert BMap.orderedBy<Text, Nat>(state.createdAtTimes, Text.compare);
+    state.createdAtTimes := putNat(state.createdAtTimes, key, createdAtTime);
+    state.totalPending += debitAmount;
+    #ok({
+      operationId = createdAtTime;
+      ledger = ledger;
+      amount = amount;
+      fee = fee;
+      debitAmount = debitAmount;
+      createdAtTime = createdAtTime
+    })
+  };
+
+  public func clear(
+    state : State,
+    user : Principal,
+    started : Types.WithdrawStarted
+  ) : Types.Result<Nat, Types.WithdrawError>
+    requires true;
+    ensures valid(state);
+    ensures switch (result) {
+      case (#ok debit) {
+        debit == started.debitAmount and
+        totalPending(state) + debit == old(totalPending(state))
+      };
+      case (#err(_)) {
+        totalPending(state) == old(totalPending(state))
+      }
+    };
+  {
+    let key = accountKey(user);
+    let pendingDebit = mapGetNat(state.debits, key);
+    if (pendingDebit == 0 or pendingDebit != started.debitAmount) {
+      return #err(#withdrawInProgress)
+    };
+    if (state.totalPending < pendingDebit) {
+      return #err(#withdrawInProgress)
+    };
+    assert BMap.orderedBy<Text, Nat>(state.amounts, Text.compare);
+    state.amounts := putNat(state.amounts, key, 0);
+    assert BMap.orderedBy<Text, Nat>(state.fees, Text.compare);
+    state.fees := putNat(state.fees, key, 0);
+    assert BMap.orderedBy<Text, Nat>(state.debits, Text.compare);
+    state.debits := putNat(state.debits, key, 0);
+    assert BMap.orderedBy<Text, Nat>(state.createdAtTimes, Text.compare);
+    state.createdAtTimes := putNat(state.createdAtTimes, key, 0);
+    state.totalPending -= pendingDebit;
+    #ok(pendingDebit)
+  };
+
+  public pure func transferErrorRefundable(err : ICRCLedger.TransferError) : Bool
+    requires true;
+  {
+    switch (err) {
+      case (#BadBurn(_)) { true };
+      case (#BadFee(_)) { true };
+      case (#CreatedInFuture(_)) { true };
+      case (#TooOld) { true };
+      case (#InsufficientFunds(_)) { true };
+      case (_) { false }
+    }
+  };
+}

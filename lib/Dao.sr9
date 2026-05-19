@@ -489,9 +489,11 @@ module {
       null
     } else {
       ?{
+        operationId = 0;
         amount = mapGetNat(dao.pendingWithdrawAmounts, key);
         fee = mapGetNat(dao.pendingWithdrawFees, key);
-        debitAmount = debitAmount
+        debitAmount = debitAmount;
+        createdAtTime = 0
       }
     }
   };

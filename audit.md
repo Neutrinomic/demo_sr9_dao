@@ -17,9 +17,9 @@ The review intentionally ignores formal verification claims and focuses on produ
   `DaoActorDemo.sr9:179`, `lib/Dao.sr9:783`, `lib/Dao.sr9:851`.
   Any `icrc1_transfer` `#Err` currently restores the pending debit to liquid. Add durable withdrawal operation IDs, memo/timestamp correlation, and a reconciliation-needed state for duplicate or unknown outcomes. Refund only errors that are guaranteed not to have executed.
 
-- [ ] **High: add recovery for stuck pending withdrawals.**
+- [x] **High: add recovery for stuck pending withdrawals.**
   `DaoActorDemo.sr9:173`, `DaoActorDemo.sr9:179`, `lib/Dao.sr9:697`.
-  Pending withdrawals are cleared only by the suspended ledger call returning. Persist full pending withdrawal operation records and add retry, finalize, cancel, or reconciliation flows so users cannot remain stuck forever.
+  `WithdrawalOps` now stores pending operation metadata separately from the main DAO state, `pending_withdrawal(user)` exposes it, and `retry_withdrawal()` resubmits the same memo and timestamp until success, duplicate finalization, deterministic refund, or continued reconciliation.
 
 - [x] **High: prevent immediate proposal close griefing.**
   `DaoActorDemo.sr9:260`, `lib/Dao.sr9:1277`, `lib/Dao.sr9:1303`.
@@ -35,7 +35,7 @@ The review intentionally ignores formal verification claims and focuses on produ
 
 - [x] **Medium: add idempotency and correlation data to ledger calls.**
   `DaoActorDemo.sr9:60`, `DaoActorDemo.sr9:61`, `DaoActorDemo.sr9:83`, `DaoActorDemo.sr9:85`.
-  Deposits and in-flight withdrawals now include per-operation memo/timestamp data, and duplicate ledger responses are handled explicitly. Durable pending-withdraw retry state remains covered by the withdrawal recovery TODO.
+  Deposits and withdrawals now include per-operation memo/timestamp data, duplicate ledger responses are handled explicitly, and pending withdrawals keep retry metadata in `WithdrawalOps`.
 
 - [x] **Medium: prune or bound storage growth.**
   `lib/Dao.sr9:765`, `lib/Dao.sr9:1262`.
