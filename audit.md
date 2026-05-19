@@ -8,6 +8,8 @@ This practical audit reviewed:
 - `lib/Types.sr9`
 - `DaoActorDemo.sr9`
 - `README.md`
+- the bundled SR9 DEX reference exported from the current SR9 image under
+  `.sr9docs/apps/dex`
 
 The review intentionally ignores formal verification claims and focuses on production security, user-funds safety, governance correctness, operational liveness, and user-facing behavior.
 
@@ -45,6 +47,33 @@ The review intentionally ignores formal verification claims and focuses on produ
   `DaoActorDemo.sr9:112`, `lib/Dao.sr9:1252`.
   `voting_power(user)` returns active stake even when it is still locked. Rename it to `active_stake`, or make it time-aware and return only currently eligible voting power.
 
+## DEX Reference Audit Notes
+
+- The current repository does not track DEX source. The DEX reference used for comparison is bundled in the SR9 image and was exported temporarily from `.sr9docs/apps/dex`.
+
+- **Acceptable: outbound DEX transfers are single in-flight calls.**
+  The DEX actor builds deposit and withdrawal ledger calls with `memo = null` and `created_at_time = null`. Under the Internet Computer call model, a sent inter-canister call returns a reply or reject; if the DEX does not submit the same outbound request twice, duplicate-transfer idempotency is not required for this demo flow. The DAO's memo/timestamp correlation and withdrawal retry metadata are extra hardening for retry and reconciliation.
+
+- **Acceptable: DEX withdrawal ledger `#Err` refunds locally.**
+  In the intended ICRC ledger semantics, a transfer `#Err` means the transfer was not made. Under that assumption, restoring the pending local debit on `#Err` is acceptable. The DAO keeps stricter reconciliation behavior for ambiguous outcomes and explicit retry support, but this is not a DEX issue under the stated semantics.
+
+- **Acceptable: DEX deposits have in-flight guards without operation correlation.**
+  `InFlightDeposits` tracks pending ledger activity by ledger key. Because the actor sends one inter-canister request and receives a guaranteed reply or reject, the lack of memo/timestamp correlation is acceptable for this demo flow. The DAO's operation correlation is extra traceability and retry hardening, not a required fix for the DEX pattern.
+
+- **Acceptable: DEX pending modules match the single-call flow.**
+  `PendingWithdrawals` and `PendingReturns` are useful opaque modules with ledger totals and one-operation-per-key behavior. Because the DEX waits on one guaranteed ledger reply or reject, separate retry/finalize endpoints are not required for that design. The DAO's `WithdrawalOps` path is still useful where explicit retry/reconciliation is desired.
+
+- **Assumption: whitelisted ledgers are trusted.**
+  The DEX relies on controller-managed ledger allowlisting and assumes listed ledgers behave truthfully like standard ICRC ledgers. The DAO currently makes the same kind of trust assumption for its configured governance ledger.
+
+### DAO Takeaways From The DEX
+
+- Keep actor `await` code thin and put accounting transitions in verified modules.
+- Split pending async operation state into separate opaque modules.
+- Track explicit totals and prove conservation on every transition.
+- Treat genuinely ambiguous ledger outcomes as pending reconciliation, not local refund.
+- Use private rich-contract implementation functions with public import-safe wrappers.
+
 ## Assumptions
 
 - Users are expected to deposit through the DAO `deposit(amount)` flow. Direct token transfers to the DAO account are unsupported and are outside this security TODO list.
@@ -52,4 +81,6 @@ The review intentionally ignores formal verification claims and focuses on produ
 
 ## Overall Assessment
 
-The current DAO is coherent as a verified demo, but it is not production-ready for real-token use. The most important hardening work is operational: robust ledger idempotency and reconciliation, safe withdrawal recovery, real proposal deadlines, snapshot or vote-lock semantics, and meaningful governance config validation.
+The DAO is materially hardened for a verified demo and has addressed the main user-funds and governance risks found in this audit. It now has real-token deposit and withdrawal flows, staking locks for voting eligibility, vote locking, proposal deadlines, config validation, bounded proposal vote storage, ledger-call correlation, and withdrawal retry/reconciliation hardening.
+
+The remaining production risk is mostly operational and deployment-specific: the configured governance ledger is trusted, users must deposit through the DAO flow, direct token transfers to the DAO account are unsupported, upgrade and reconciliation runbooks are not defined here, and the current design intentionally supports one ledger with default accounts only.
