@@ -120,6 +120,14 @@ module {
   ) : Types.Result<Types.WithdrawStarted, Types.WithdrawError>
     requires true;
     ensures model(state) == old(model(state));
+    ensures switch (result) {
+      case (#ok started) {
+        started.ledger == ledger and
+        started.debitAmount == started.amount + started.fee and
+        started.operationId == started.createdAtTime
+      };
+      case (#err(_)) { true }
+    };
   {
     let key = accountKey(user);
     let debitAmount = mapGetNat(state.debits, key);

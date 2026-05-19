@@ -1,0 +1,399 @@
+import Types "./Types";
+
+module {
+  public let VOTING_PERIOD_NS : Int = 259_200_000_000_000;
+
+  public type Model = {
+    id : Nat;
+    proposer : Text;
+    action : Types.ConfigAction;
+    yesVotes : Nat;
+    noVotes : Nat;
+    quorumVotes : Nat;
+    snapshotActiveStake : Nat;
+    bond : Nat;
+    createdAt : Int;
+    deadline : Int;
+    status : Types.ProposalStatus
+  };
+
+  public type Proposal = opaque {
+    id : Nat;
+    proposer : Text;
+    actionKind : Nat;
+    actionQuorum : Nat;
+    actionThreshold : Nat;
+    var yesVotes : Nat;
+    var noVotes : Nat;
+    quorumVotes : Nat;
+    snapshotActiveStake : Nat;
+    var bond : Nat;
+    createdAt : Int;
+    deadline : Int;
+    var statusCode : Nat;
+    invariant statusCode <= 3
+  };
+
+  public type CloseOutcome = {
+    model : Model;
+    receipt : Types.CloseReceipt;
+    bondBurned : Nat
+  };
+
+  public type ExecuteOutcome = {
+    model : Model;
+    receipt : Types.ExecuteReceipt;
+    proposer : Text;
+    bondReturned : Nat;
+    action : Types.ConfigAction
+  };
+
+  private pure func actionKind(action : Types.ConfigAction) : Nat
+    requires true;
+  {
+    switch (action) {
+      case (#setQuorum(_)) { 1 };
+      case (#setProposalThreshold(_)) { 2 };
+      case (#setConfig(_)) { 3 }
+    }
+  };
+
+  private pure func actionQuorum(action : Types.ConfigAction) : Nat
+    requires true;
+  {
+    switch (action) {
+      case (#setQuorum q) { q };
+      case (#setProposalThreshold(_)) { 0 };
+      case (#setConfig cfg) { cfg.quorumVotes }
+    }
+  };
+
+  private pure func actionThreshold(action : Types.ConfigAction) : Nat
+    requires true;
+  {
+    switch (action) {
+      case (#setQuorum(_)) { 0 };
+      case (#setProposalThreshold t) { t };
+      case (#setConfig cfg) { cfg.proposalThreshold }
+    }
+  };
+
+  private pure func actionFromFields(kind : Nat, quorum : Nat, threshold : Nat) : Types.ConfigAction
+    requires true;
+  {
+    if (kind == 1) {
+      #setQuorum quorum
+    } else if (kind == 2) {
+      #setProposalThreshold threshold
+    } else {
+      #setConfig({ quorumVotes = quorum; proposalThreshold = threshold })
+    }
+  };
+
+  private pure func statusCode(status : Types.ProposalStatus) : Nat
+    requires true;
+  {
+    switch (status) {
+      case (#open) { 0 };
+      case (#passed) { 1 };
+      case (#failed) { 2 };
+      case (#executed) { 3 }
+    }
+  };
+
+  private pure func statusFromCode(code : Nat) : Types.ProposalStatus
+    requires true;
+  {
+    if (code == 1) {
+      #passed
+    } else if (code == 2) {
+      #failed
+    } else if (code == 3) {
+      #executed
+    } else {
+      #open
+    }
+  };
+
+  public pure func model(proposal : Proposal) : Model
+    requires true;
+    ensures result.id == proposal.id;
+    ensures result.proposer == proposal.proposer;
+    ensures result.yesVotes == proposal.yesVotes;
+    ensures result.noVotes == proposal.noVotes;
+    ensures result.quorumVotes == proposal.quorumVotes;
+    ensures result.snapshotActiveStake == proposal.snapshotActiveStake;
+    ensures result.bond == proposal.bond;
+    ensures result.createdAt == proposal.createdAt;
+    ensures result.deadline == proposal.deadline;
+  {
+    {
+      id = proposal.id;
+      proposer = proposal.proposer;
+      action = actionFromFields(
+        proposal.actionKind,
+        proposal.actionQuorum,
+        proposal.actionThreshold
+      );
+      yesVotes = proposal.yesVotes;
+      noVotes = proposal.noVotes;
+      quorumVotes = proposal.quorumVotes;
+      snapshotActiveStake = proposal.snapshotActiveStake;
+      bond = proposal.bond;
+      createdAt = proposal.createdAt;
+      deadline = proposal.deadline;
+      status = statusFromCode(proposal.statusCode)
+    }
+  };
+
+  public pure func isOpen(proposal : Model) : Bool
+    requires true;
+  {
+    switch (proposal.status) {
+      case (#open) { true };
+      case (_) { false }
+    }
+  };
+
+  private pure func objectIsOpen(proposal : Proposal) : Bool
+    requires true;
+    ensures result == isOpen(model(proposal));
+  {
+    proposal.statusCode == 0
+  };
+
+  public pure func isPassed(proposal : Model) : Bool
+    requires true;
+  {
+    switch (proposal.status) {
+      case (#passed) { true };
+      case (_) { false }
+    }
+  };
+
+  public pure func isExecuted(proposal : Model) : Bool
+    requires true;
+  {
+    switch (proposal.status) {
+      case (#executed) { true };
+      case (_) { false }
+    }
+  };
+
+  public pure func participation(proposal : Model) : Nat
+    requires true;
+    ensures result == proposal.yesVotes + proposal.noVotes;
+  {
+    proposal.yesVotes + proposal.noVotes
+  };
+
+  public pure func participationMet(proposal : Model) : Bool
+    requires true;
+    ensures result == (participation(proposal) * 100 > proposal.snapshotActiveStake * 3);
+  {
+    participation(proposal) * 100 > proposal.snapshotActiveStake * 3
+  };
+
+  public pure func passes(proposal : Model) : Bool
+    requires true;
+    ensures result == (
+      participation(proposal) >= proposal.quorumVotes and
+      proposal.yesVotes > proposal.noVotes and
+      participationMet(proposal)
+    );
+  {
+    participation(proposal) >= proposal.quorumVotes and
+      proposal.yesVotes > proposal.noVotes and
+      participationMet(proposal)
+  };
+
+  public pure func toPublic(proposal : Model) : Types.Proposal
+    requires true;
+  {
+    {
+      id = proposal.id;
+      proposer = proposal.proposer;
+      action = proposal.action;
+      yesVotes = proposal.yesVotes;
+      noVotes = proposal.noVotes;
+      quorumVotes = proposal.quorumVotes;
+      snapshotActiveStake = proposal.snapshotActiveStake;
+      bond = proposal.bond;
+      createdAt = proposal.createdAt;
+      deadline = proposal.deadline;
+      status = proposal.status
+    }
+  };
+
+  public func create(
+    id : Nat,
+    proposer : Text,
+    action : Types.ConfigAction,
+    quorumVotes : Nat,
+    snapshotActiveStake : Nat,
+    bond : Nat,
+    now : Int
+  ) : Proposal
+    requires true;
+    ensures model(result).id == id;
+    ensures model(result).proposer == proposer;
+    ensures model(result).action == action;
+    ensures model(result).yesVotes == 0;
+    ensures model(result).noVotes == 0;
+    ensures model(result).quorumVotes == quorumVotes;
+    ensures model(result).snapshotActiveStake == snapshotActiveStake;
+    ensures model(result).bond == bond;
+    ensures model(result).createdAt == now;
+    ensures model(result).deadline == now + VOTING_PERIOD_NS;
+    ensures isOpen(model(result));
+  {
+    {
+      id = id;
+      proposer = proposer;
+      actionKind = actionKind(action);
+      actionQuorum = actionQuorum(action);
+      actionThreshold = actionThreshold(action);
+      var yesVotes = 0;
+      var noVotes = 0;
+      quorumVotes = quorumVotes;
+      snapshotActiveStake = snapshotActiveStake;
+      var bond = bond;
+      createdAt = now;
+      deadline = now + VOTING_PERIOD_NS;
+      var statusCode = statusCode(#open)
+    }
+  };
+
+  public func cast(
+    proposal : Proposal,
+    choice : Types.VoteChoice,
+    weight : Nat
+  ) : ()
+    requires objectIsOpen(proposal);
+    ensures model(proposal).id == old(model(proposal).id);
+    ensures model(proposal).proposer == old(model(proposal).proposer);
+    ensures model(proposal).action == old(model(proposal).action);
+    ensures model(proposal).quorumVotes == old(model(proposal).quorumVotes);
+    ensures model(proposal).snapshotActiveStake == old(model(proposal).snapshotActiveStake);
+    ensures model(proposal).bond == old(model(proposal).bond);
+    ensures model(proposal).createdAt == old(model(proposal).createdAt);
+    ensures model(proposal).deadline == old(model(proposal).deadline);
+    ensures model(proposal).status == old(model(proposal).status);
+  {
+    switch (choice) {
+      case (#yes) {
+        proposal.yesVotes += weight
+      };
+      case (#no) {
+        proposal.noVotes += weight
+      }
+    }
+  };
+
+  public func close(
+    proposal : Proposal,
+    now : Int
+  ) : Types.Result<CloseOutcome, Types.CloseError>
+    requires true;
+    ensures switch (result) {
+      case (#ok outcome) { outcome.model == model(proposal) };
+      case (#err(_)) { model(proposal) == old(model(proposal)) }
+    };
+    ensures switch (result) {
+      case (#ok outcome) { outcome.bondBurned <= old(model(proposal).bond) };
+      case (#err(_)) { true }
+    };
+    ensures switch (result) {
+      case (#ok outcome) {
+        outcome.bondBurned == (
+          if (
+            old(isOpen(model(proposal))) and
+            now >= old(model(proposal).deadline) and
+            not old(passes(model(proposal)))
+          ) { old(model(proposal).bond) } else { 0 }
+        )
+      };
+      case (#err(_)) { true }
+    };
+  {
+    let before = model(proposal);
+    if (not isOpen(before)) {
+      return #err(#proposalNotOpen)
+    };
+    if (now < before.deadline) {
+      return #err(#votingPeriodActive({ now = now; deadline = before.deadline }))
+    };
+    if (passes(before)) {
+      proposal.statusCode := statusCode(#passed);
+      let next = model(proposal);
+      #ok({
+        model = next;
+        receipt = {
+          id = before.id;
+          status = #passed;
+          yesVotes = before.yesVotes;
+          noVotes = before.noVotes;
+          quorumVotes = before.quorumVotes
+        };
+        bondBurned = 0
+      })
+    } else {
+      let burned = before.bond;
+      proposal.bond := 0;
+      proposal.statusCode := statusCode(#failed);
+      let next = model(proposal);
+      #ok({
+        model = next;
+        receipt = {
+          id = before.id;
+          status = #failed;
+          yesVotes = before.yesVotes;
+          noVotes = before.noVotes;
+          quorumVotes = before.quorumVotes
+        };
+        bondBurned = burned
+      })
+    }
+  };
+
+  public func execute(
+    proposal : Proposal,
+    config : Types.Config
+  ) : Types.Result<ExecuteOutcome, Types.ExecuteError>
+    requires true;
+    ensures switch (result) {
+      case (#ok outcome) { outcome.model == model(proposal) };
+      case (#err(_)) { model(proposal) == old(model(proposal)) }
+    };
+    ensures switch (result) {
+      case (#ok outcome) { outcome.bondReturned == old(model(proposal).bond) };
+      case (#err(_)) { true }
+    };
+    ensures switch (result) {
+      case (#ok outcome) {
+        outcome.proposer == old(model(proposal).proposer) and
+        outcome.action == old(model(proposal).action)
+      };
+      case (#err(_)) { true }
+    };
+  {
+    let before = model(proposal);
+    if (isExecuted(before)) {
+      return #err(#alreadyExecuted)
+    };
+    if (not isPassed(before)) {
+      return #err(#proposalNotPassed)
+    };
+    let returned = before.bond;
+    proposal.bond := 0;
+    proposal.statusCode := statusCode(#executed);
+    let next = model(proposal);
+    #ok({
+      model = next;
+      receipt = { id = before.id; config = config };
+      proposer = before.proposer;
+      bondReturned = returned;
+      action = before.action
+    })
+  };
+}

@@ -143,7 +143,6 @@ module {
     requires true;
     ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
     ensures Dao.totalLiquid(dao) == old(Dao.totalLiquid(dao));
-    ensures Dao.totalActiveStake(dao) == old(Dao.totalActiveStake(dao));
     ensures Dao.totalPendingUnstake(dao) == old(Dao.totalPendingUnstake(dao));
   {
     Dao.execute(dao, id)

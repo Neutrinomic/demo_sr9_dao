@@ -37,11 +37,13 @@ The review intentionally ignores formal verification claims and focuses on produ
 
 - [x] **Medium: add idempotency and correlation data to ledger calls.**
   `DaoActorDemo.sr9:60`, `DaoActorDemo.sr9:61`, `DaoActorDemo.sr9:83`, `DaoActorDemo.sr9:85`.
-  Deposits and withdrawals now include per-operation memo/timestamp data, duplicate ledger responses are handled explicitly, and pending withdrawals keep retry metadata in `WithdrawalOps`.
+  Deposits and withdrawals now include per-operation memo/timestamp data. Deposit duplicate responses are not credited without a matching local deposit operation record, withdrawal duplicates finalize only against a pending debit, and pending withdrawals keep retry metadata in `WithdrawalOps`.
 
 - [x] **Medium: prune or bound storage growth.**
   `lib/Dao.sr9:765`, `lib/Dao.sr9:1262`.
-  New proposals reset prior vote and vote-lock storage, bounding proposal-related maps to the current proposal.
+  Proposal storage is bounded to 32 lifetime proposals. Vote maps are keyed by
+  proposal id and user, so multiple proposals can be open at the same time while
+  proposal creation rejects after capacity is reached.
 
 - [x] **Low: make `voting_power` report eligible voting power or rename it.**
   `DaoActorDemo.sr9:112`, `lib/Dao.sr9:1252`.

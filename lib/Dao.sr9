@@ -2,12 +2,14 @@ import BMap "mo:core/pure/BMap";
 import ICRCLedger "mo:core/pattern/ICRCLedger";
 import NatCore "mo:core/Nat";
 import Principal "mo:core/Principal";
+import Proposal "./Proposal";
+import ProposalBook "./ProposalBook";
 import Text "mo:core/Text";
 import Types "./Types";
 
 module {
   public let UNSTAKE_DELAY_NS : Int = 604_800_000_000_000;
-  public let VOTING_PERIOD_NS : Int = 604_800_000_000_000;
+  public let VOTING_PERIOD_NS : Int = Proposal.VOTING_PERIOD_NS;
 
   public type Model = {
     governanceLedger : Principal;
@@ -16,12 +18,10 @@ module {
     totalActiveStake : Nat;
     totalPendingUnstake : Nat;
     totalPendingWithdraw : Nat;
-    nextProposalId : Nat;
+    totalProposalBonds : Nat;
     config : Types.Config
   };
 
-  // Proposal status encoding: 0=open, 1=passed, 2=failed, 3=executed.
-  // Action encoding: 1=set quorum, 2=set proposal threshold, 3=set both.
   public type State = opaque {
     var governanceLedger : Principal;
     var liquid : BMap.BMap<Text, Nat>;
@@ -32,27 +32,13 @@ module {
     var pendingWithdrawAmounts : BMap.BMap<Text, Nat>;
     var pendingWithdrawFees : BMap.BMap<Text, Nat>;
     var pendingWithdrawDebits : BMap.BMap<Text, Nat>;
-    var votes : BMap.BMap<Text, Bool>;
-    var voteLocks : BMap.BMap<Text, Nat>;
-    var nextProposalId : Nat;
-    var hasProposal : Bool;
-    var proposalId : Nat;
-    var proposalProposer : Text;
-    var proposalActionKind : Nat;
-    var proposalActionQuorum : Nat;
-    var proposalActionThreshold : Nat;
-    var proposalYes : Nat;
-    var proposalNo : Nat;
-    var proposalQuorum : Nat;
-    var proposalSnapshotStake : Nat;
-    var proposalCreatedAt : Int;
-    var proposalDeadline : Int;
-    var proposalStatus : Nat;
+    proposals : ProposalBook.Book;
     var totalSupply : Nat;
     var totalLiquid : Nat;
     var totalActiveStake : Nat;
     var totalPendingUnstake : Nat;
     var totalPendingWithdraw : Nat;
+    var totalProposalBonds : Nat;
     var quorumVotes : Nat;
     var proposalThreshold : Nat;
     invariant BMap.orderedBy<Text, Nat>(liquid, Text.compare);
@@ -63,12 +49,11 @@ module {
     invariant BMap.orderedBy<Text, Nat>(pendingWithdrawAmounts, Text.compare);
     invariant BMap.orderedBy<Text, Nat>(pendingWithdrawFees, Text.compare);
     invariant BMap.orderedBy<Text, Nat>(pendingWithdrawDebits, Text.compare);
-    invariant BMap.orderedBy<Text, Bool>(votes, Text.compare);
-    invariant BMap.orderedBy<Text, Nat>(voteLocks, Text.compare);
+    invariant ProposalBook.valid(proposals);
     invariant quorumVotes > 0;
     invariant proposalThreshold > 0;
-    invariant totalLiquid + totalActiveStake + totalPendingUnstake + totalPendingWithdraw ==
-      totalSupply
+    invariant totalLiquid + totalActiveStake + totalPendingUnstake + totalPendingWithdraw +
+      totalProposalBonds == totalSupply
   };
 
   public pure func model(dao : State) : Model
@@ -79,7 +64,7 @@ module {
     ensures result.totalActiveStake == dao.totalActiveStake;
     ensures result.totalPendingUnstake == dao.totalPendingUnstake;
     ensures result.totalPendingWithdraw == dao.totalPendingWithdraw;
-    ensures result.nextProposalId == dao.nextProposalId;
+    ensures result.totalProposalBonds == dao.totalProposalBonds;
     ensures result.config.quorumVotes == dao.quorumVotes;
     ensures result.config.proposalThreshold == dao.proposalThreshold;
   {
@@ -90,7 +75,7 @@ module {
       totalActiveStake = dao.totalActiveStake;
       totalPendingUnstake = dao.totalPendingUnstake;
       totalPendingWithdraw = dao.totalPendingWithdraw;
-      nextProposalId = dao.nextProposalId;
+      totalProposalBonds = dao.totalProposalBonds;
       config = {
         quorumVotes = dao.quorumVotes;
         proposalThreshold = dao.proposalThreshold
@@ -102,13 +87,13 @@ module {
     requires true;
     ensures result == (
       model(dao).totalLiquid + model(dao).totalActiveStake +
-        model(dao).totalPendingUnstake + model(dao).totalPendingWithdraw ==
-        model(dao).totalSupply
+        model(dao).totalPendingUnstake + model(dao).totalPendingWithdraw +
+        model(dao).totalProposalBonds == model(dao).totalSupply
     );
   {
     model(dao).totalLiquid + model(dao).totalActiveStake +
-      model(dao).totalPendingUnstake + model(dao).totalPendingWithdraw ==
-      model(dao).totalSupply
+      model(dao).totalPendingUnstake + model(dao).totalPendingWithdraw +
+      model(dao).totalProposalBonds == model(dao).totalSupply
   };
 
   private pure func configValueValid(value : Nat) : Bool
@@ -134,12 +119,12 @@ module {
   public pure func configValid(dao : State) : Bool
     requires true;
     ensures result == (
-      configValueValid(dao.quorumVotes) and
-      configValueValid(dao.proposalThreshold)
+      model(dao).config.quorumVotes > 0 and
+      model(dao).config.proposalThreshold > 0
     );
   {
-    configValueValid(dao.quorumVotes) and
-      configValueValid(dao.proposalThreshold)
+    model(dao).config.quorumVotes > 0 and
+      model(dao).config.proposalThreshold > 0
   };
 
   public pure func governanceLedger(dao : State) : Principal
@@ -184,6 +169,32 @@ module {
     dao.totalPendingWithdraw
   };
 
+  public pure func totalProposalBonds(dao : State) : Nat
+    requires true;
+    ensures result == dao.totalProposalBonds;
+  {
+    dao.totalProposalBonds
+  };
+
+  public pure func totals(dao : State) : Types.DaoTotals
+    requires true;
+    ensures result.totalSupply == dao.totalSupply;
+    ensures result.totalLiquid == dao.totalLiquid;
+    ensures result.totalActiveStake == dao.totalActiveStake;
+    ensures result.totalPendingUnstake == dao.totalPendingUnstake;
+    ensures result.totalPendingWithdraw == dao.totalPendingWithdraw;
+    ensures result.totalProposalBonds == dao.totalProposalBonds;
+  {
+    {
+      totalSupply = dao.totalSupply;
+      totalLiquid = dao.totalLiquid;
+      totalActiveStake = dao.totalActiveStake;
+      totalPendingUnstake = dao.totalPendingUnstake;
+      totalPendingWithdraw = dao.totalPendingWithdraw;
+      totalProposalBonds = dao.totalProposalBonds
+    }
+  };
+
   public pure func config(dao : State) : Types.Config
     requires true;
     ensures result.quorumVotes == dao.quorumVotes;
@@ -197,9 +208,24 @@ module {
 
   public pure func nextProposalId(dao : State) : Nat
     requires true;
-    ensures result == dao.nextProposalId;
+    ensures result == ProposalBook.nextProposalId(dao.proposals);
   {
-    dao.nextProposalId
+    ProposalBook.nextProposalId(dao.proposals)
+  };
+
+  public pure func maxProposals() : Nat
+    requires true;
+    ensures result == ProposalBook.maxProposals();
+  {
+    ProposalBook.maxProposals()
+  };
+
+  public pure func proposalWindow(dao : State) : Types.ProposalWindow
+    requires true;
+    ensures result.nextProposalId == ProposalBook.nextProposalId(dao.proposals);
+    ensures result.maxProposals == ProposalBook.maxProposals();
+  {
+    ProposalBook.proposalWindow(dao.proposals)
   };
 
   public pure func accountKey(user : Principal) : Text
@@ -226,15 +252,6 @@ module {
     }
   };
 
-  private pure func mapGetBool(map : BMap.BMap<Text, Bool>, key : Text) : Bool
-    requires true;
-  {
-    switch (BMap.get<Text, Bool>(map, Text.compare, key)) {
-      case (?value) { value };
-      case null { false }
-    }
-  };
-
   private func putNat(map : BMap.BMap<Text, Nat>, key : Text, value : Nat) : BMap.BMap<Text, Nat>
     requires BMap.orderedBy<Text, Nat>(map, Text.compare);
     ensures BMap.orderedBy<Text, Nat>(result, Text.compare);
@@ -249,74 +266,11 @@ module {
     BMap.add<Text, Int>(map, Text.compare, key, value)
   };
 
-  private func putVote(map : BMap.BMap<Text, Bool>, key : Text) : BMap.BMap<Text, Bool>
-    requires BMap.orderedBy<Text, Bool>(map, Text.compare);
-    ensures BMap.orderedBy<Text, Bool>(result, Text.compare);
-  {
-    BMap.add<Text, Bool>(map, Text.compare, key, true)
-  };
-
-  private pure func voteKey(id : Nat, user : Principal) : Text
+  public func openVoteLock(dao : State, user : Principal) : Nat
     requires true;
+    ensures model(dao) == old(model(dao));
   {
-    NatCore.toText(id) # ":" # Principal.toText(user)
-  };
-
-  private pure func openVoteLock(dao : State, user : Principal) : Nat
-    requires true;
-  {
-    if (dao.hasProposal and dao.proposalStatus == 0) {
-      mapGetNat(dao.voteLocks, voteKey(dao.proposalId, user))
-    } else {
-      0
-    }
-  };
-
-  private pure func statusFromCode(code : Nat) : Types.ProposalStatus
-    requires true;
-  {
-    if (code == 1) {
-      #passed
-    } else if (code == 2) {
-      #failed
-    } else if (code == 3) {
-      #executed
-    } else {
-      #open
-    }
-  };
-
-  private pure func statusCode(status : Types.ProposalStatus) : Nat
-    requires true;
-  {
-    switch (status) {
-      case (#open) { 0 };
-      case (#passed) { 1 };
-      case (#failed) { 2 };
-      case (#executed) { 3 }
-    }
-  };
-
-  private pure func actionFromFields(kind : Nat, quorum : Nat, threshold : Nat) : Types.ConfigAction
-    requires true;
-  {
-    if (kind == 1) {
-      #setQuorum quorum
-    } else if (kind == 2) {
-      #setProposalThreshold threshold
-    } else {
-      #setConfig({ quorumVotes = quorum; proposalThreshold = threshold })
-    }
-  };
-
-  private pure func actionKind(action : Types.ConfigAction) : Nat
-    requires true;
-  {
-    switch (action) {
-      case (#setQuorum(_)) { 1 };
-      case (#setProposalThreshold(_)) { 2 };
-      case (#setConfig(_)) { 3 }
-    }
+    ProposalBook.openVoteLock(dao.proposals, user)
   };
 
   private pure func actionQuorum(config : Types.Config, action : Types.ConfigAction) : Nat
@@ -366,6 +320,7 @@ module {
     ensures totalActiveStake(result) == 0;
     ensures totalPendingUnstake(result) == 0;
     ensures totalPendingWithdraw(result) == 0;
+    ensures totalProposalBonds(result) == 0;
     ensures config(result).quorumVotes == normalizeConfigValue(quorumVotes);
     ensures config(result).proposalThreshold == normalizeConfigValue(proposalThreshold);
   {
@@ -379,8 +334,7 @@ module {
     let pendingWithdrawAmounts = BMap.empty<Text, Nat>();
     let pendingWithdrawFees = BMap.empty<Text, Nat>();
     let pendingWithdrawDebits = BMap.empty<Text, Nat>();
-    let votes = BMap.empty<Text, Bool>();
-    let voteLocks = BMap.empty<Text, Nat>();
+    let proposals = ProposalBook.init();
     BMap.orderedBy_empty<Text, Nat>(Text.compare);
     BMap.orderedBy_empty<Text, Nat>(Text.compare);
     BMap.orderedBy_empty<Text, Int>(Text.compare);
@@ -388,8 +342,6 @@ module {
     BMap.orderedBy_empty<Text, Int>(Text.compare);
     BMap.orderedBy_empty<Text, Nat>(Text.compare);
     BMap.orderedBy_empty<Text, Nat>(Text.compare);
-    BMap.orderedBy_empty<Text, Nat>(Text.compare);
-    BMap.orderedBy_empty<Text, Bool>(Text.compare);
     BMap.orderedBy_empty<Text, Nat>(Text.compare);
     {
       var governanceLedger = ledgerPrincipal;
@@ -401,27 +353,13 @@ module {
       var pendingWithdrawAmounts = pendingWithdrawAmounts;
       var pendingWithdrawFees = pendingWithdrawFees;
       var pendingWithdrawDebits = pendingWithdrawDebits;
-      var votes = votes;
-      var voteLocks = voteLocks;
-      var nextProposalId = 0;
-      var hasProposal = false;
-      var proposalId = 0;
-      var proposalProposer = "";
-      var proposalActionKind = 0;
-      var proposalActionQuorum = 0;
-      var proposalActionThreshold = 0;
-      var proposalYes = 0;
-      var proposalNo = 0;
-      var proposalQuorum = 0;
-      var proposalSnapshotStake = 0;
-      var proposalCreatedAt : Int = 0;
-      var proposalDeadline : Int = 0;
-      var proposalStatus = 0;
+      proposals = proposals;
       var totalSupply = 0;
       var totalLiquid = 0;
       var totalActiveStake = 0;
       var totalPendingUnstake = 0;
       var totalPendingWithdraw = 0;
+      var totalProposalBonds = 0;
       var quorumVotes = safeQuorumVotes;
       var proposalThreshold = safeProposalThreshold
     }
@@ -505,7 +443,10 @@ module {
     mapGetNat(dao.pendingWithdrawDebits, accountKey(user))
   };
 
-  public func stakeInfo(dao : State, user : Principal) : Types.StakeInfo
+  public func stakeInfo(
+    dao : State,
+    user : Principal
+  ) : Types.StakeInfo
     requires true;
     ensures model(dao) == old(model(dao));
   {
@@ -515,8 +456,10 @@ module {
     {
       liquid = mapGetNat(dao.liquid, key);
       activeStake = active;
+      proposalBond = ProposalBook.proposalBond(dao.proposals, user);
       pendingUnstake = mapGetNat(dao.pendingAmounts, key);
       pendingWithdraw = mapGetNat(dao.pendingWithdrawDebits, key);
+      activeVoteLock = ProposalBook.openVoteLock(dao.proposals, user);
       votingPowerUnlockAt = if (active == 0) {
         null
       } else {
@@ -533,26 +476,18 @@ module {
     requires true;
     ensures model(dao) == old(model(dao));
   {
-    if (dao.hasProposal and id == dao.proposalId) {
-      ?{
-        id = dao.proposalId;
-        proposer = dao.proposalProposer;
-        action = actionFromFields(
-          dao.proposalActionKind,
-          dao.proposalActionQuorum,
-          dao.proposalActionThreshold
-        );
-        yesVotes = dao.proposalYes;
-        noVotes = dao.proposalNo;
-        quorumVotes = dao.proposalQuorum;
-        snapshotActiveStake = dao.proposalSnapshotStake;
-        createdAt = dao.proposalCreatedAt;
-        deadline = dao.proposalDeadline;
-        status = statusFromCode(dao.proposalStatus)
-      }
-    } else {
-      null
-    }
+    ProposalBook.proposal(dao.proposals, id)
+  };
+
+  public func voteInfo(
+    dao : State,
+    id : Nat,
+    user : Principal
+  ) : Types.VoteInfo
+    requires true;
+    ensures model(dao) == old(model(dao));
+  {
+    ProposalBook.voteInfo(dao.proposals, id, user)
   };
 
   public pure func actionValid(config : Types.Config, action : Types.ConfigAction, supply : Nat) : Bool
@@ -1218,79 +1153,67 @@ module {
     ensures configValid(dao);
     ensures totalSupply(dao) == old(totalSupply(dao));
     ensures totalLiquid(dao) == old(totalLiquid(dao));
-    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
     ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
     ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
     ensures mapGetNat(dao.liquid, accountKey(proposer)) == old(mapGetNat(dao.liquid, accountKey(proposer)));
-    ensures mapGetNat(dao.activeStake, accountKey(proposer)) == old(mapGetNat(dao.activeStake, accountKey(proposer)));
     ensures mapGetNat(dao.pendingAmounts, accountKey(proposer)) == old(mapGetNat(dao.pendingAmounts, accountKey(proposer)));
     ensures mapGetNat(dao.pendingWithdrawDebits, accountKey(proposer)) == old(mapGetNat(dao.pendingWithdrawDebits, accountKey(proposer)));
     ensures mapGetInt(dao.stakeUnlocks, accountKey(proposer)) == old(mapGetInt(dao.stakeUnlocks, accountKey(proposer)));
-    ensures forall<Text>(pure func (key : Text) : Bool =
-      mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
-      mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
-      mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
-      mapGetNat(dao.pendingWithdrawDebits, key) ==
-        old(mapGetNat(dao.pendingWithdrawDebits, key)));
     ensures switch (result) {
       case (#ok receipt) {
         receipt.proposer == proposer and
-        receipt.snapshotActiveStake == old(totalActiveStake(dao)) and
+        receipt.snapshotActiveStake + old(config(dao).proposalThreshold) ==
+          old(totalActiveStake(dao)) and
         receipt.createdAt == now and
         receipt.deadline == now + VOTING_PERIOD_NS and
-        now >= old(mapGetInt(dao.stakeUnlocks, accountKey(proposer)))
+        now >= old(mapGetInt(dao.stakeUnlocks, accountKey(proposer))) and
+        mapGetNat(dao.activeStake, accountKey(proposer)) +
+          old(config(dao).proposalThreshold) ==
+          old(mapGetNat(dao.activeStake, accountKey(proposer))) and
+        totalProposalBonds(dao) ==
+          old(totalProposalBonds(dao)) + old(config(dao).proposalThreshold)
       };
       case (#err(_)) { true }
     };
   {
-    if (dao.hasProposal and (dao.proposalStatus == 0 or dao.proposalStatus == 1)) {
-      return #err(#proposalInProgress)
-    };
     let proposerKey = accountKey(proposer);
     let proposerStake = mapGetNat(dao.activeStake, proposerKey);
     let proposerUnlockAt = mapGetInt(dao.stakeUnlocks, proposerKey);
+    let bond = dao.proposalThreshold;
     if (proposerStake == 0) {
       return #err(#proposalThresholdNotMet)
     };
     if (now < proposerUnlockAt) {
       return #err(#stakeLockActive({ now = now; unlockAt = proposerUnlockAt }))
     };
-    if (proposerStake < dao.proposalThreshold) {
+    if (proposerStake < bond) {
+      return #err(#proposalThresholdNotMet)
+    };
+    if (dao.totalActiveStake < bond) {
       return #err(#proposalThresholdNotMet)
     };
     if (not actionValid(config(dao), action, dao.totalSupply)) {
       return #err(#invalidConfigAction)
     };
-    let id = dao.nextProposalId;
-    let currentConfig = config(dao);
-    let emptyVotes = BMap.empty<Text, Bool>();
-    let emptyVoteLocks = BMap.empty<Text, Nat>();
-    BMap.orderedBy_empty<Text, Bool>(Text.compare);
-    BMap.orderedBy_empty<Text, Nat>(Text.compare);
-    dao.hasProposal := true;
-    dao.proposalId := id;
-    dao.proposalProposer := proposerKey;
-    dao.proposalActionKind := actionKind(action);
-    dao.proposalActionQuorum := actionQuorum(currentConfig, action);
-    dao.proposalActionThreshold := actionThreshold(currentConfig, action);
-    dao.proposalYes := 0;
-    dao.proposalNo := 0;
-    dao.proposalQuorum := dao.quorumVotes;
-    dao.proposalSnapshotStake := dao.totalActiveStake;
-    dao.proposalCreatedAt := now;
-    dao.proposalDeadline := now + VOTING_PERIOD_NS;
-    dao.proposalStatus := 0;
-    dao.votes := emptyVotes;
-    dao.voteLocks := emptyVoteLocks;
-    dao.nextProposalId += 1;
-    #ok({
-      id = id;
-      proposer = proposer;
-      quorumVotes = dao.quorumVotes;
-      snapshotActiveStake = dao.totalActiveStake;
-      createdAt = now;
-      deadline = now + VOTING_PERIOD_NS
-    })
+    let snapshotActiveStake = NatCore.sub(dao.totalActiveStake, bond);
+    switch (ProposalBook.create(
+      dao.proposals,
+      proposer,
+      action,
+      dao.quorumVotes,
+      snapshotActiveStake,
+      bond,
+      now
+    )) {
+      case (#err err) { #err(err) };
+      case (#ok receipt) {
+        assert BMap.orderedBy<Text, Nat>(dao.activeStake, Text.compare);
+        dao.activeStake := putNat(dao.activeStake, proposerKey, proposerStake - bond);
+        dao.totalActiveStake -= bond;
+        dao.totalProposalBonds += bond;
+        #ok(receipt)
+      }
+    }
   };
 
   private func voteImpl(
@@ -1308,22 +1231,13 @@ module {
     ensures totalActiveStake(dao) == old(totalActiveStake(dao));
     ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
     ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
+    ensures totalProposalBonds(dao) == old(totalProposalBonds(dao));
     ensures config(dao) == old(config(dao));
     ensures mapGetNat(dao.liquid, accountKey(voter)) == old(mapGetNat(dao.liquid, accountKey(voter)));
     ensures mapGetNat(dao.activeStake, accountKey(voter)) == old(mapGetNat(dao.activeStake, accountKey(voter)));
     ensures mapGetNat(dao.pendingAmounts, accountKey(voter)) == old(mapGetNat(dao.pendingAmounts, accountKey(voter)));
     ensures mapGetNat(dao.pendingWithdrawDebits, accountKey(voter)) == old(mapGetNat(dao.pendingWithdrawDebits, accountKey(voter)));
     ensures mapGetInt(dao.stakeUnlocks, accountKey(voter)) == old(mapGetInt(dao.stakeUnlocks, accountKey(voter)));
-    ensures forall<Text>(pure func (key : Text) : Bool =
-      mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
-      mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
-      mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
-      mapGetNat(dao.pendingWithdrawDebits, key) ==
-        old(mapGetNat(dao.pendingWithdrawDebits, key)));
-    ensures old(mapGetBool(dao.votes, voteKey(id, voter))) implies (switch (result) {
-      case (#ok(_)) { false };
-      case (#err(_)) { true }
-    });
     ensures switch (result) {
       case (#ok receipt) {
         receipt.id == id and
@@ -1331,32 +1245,11 @@ module {
         receipt.choice == choice and
         receipt.weight == old(mapGetNat(dao.activeStake, accountKey(voter))) and
         receipt.weight > 0 and
-        now >= old(mapGetInt(dao.stakeUnlocks, accountKey(voter))) and
-        not old(mapGetBool(dao.votes, voteKey(id, voter))) and
-        mapGetBool(dao.votes, voteKey(id, voter)) and
-        mapGetNat(dao.voteLocks, voteKey(id, voter)) == receipt.weight and
-        receipt.yesVotes == dao.proposalYes and
-        receipt.noVotes == dao.proposalNo and
-        (switch (choice) {
-          case (#yes) {
-            dao.proposalYes == old(dao.proposalYes) + receipt.weight and
-            dao.proposalNo == old(dao.proposalNo)
-          };
-          case (#no) {
-            dao.proposalYes == old(dao.proposalYes) and
-            dao.proposalNo == old(dao.proposalNo) + receipt.weight
-          }
-        })
+        now >= old(mapGetInt(dao.stakeUnlocks, accountKey(voter)))
       };
       case (#err(_)) { true }
     };
   {
-    if (not dao.hasProposal or id != dao.proposalId) {
-      return #err(#proposalNotFound)
-    };
-    if (dao.proposalStatus != 0) {
-      return #err(#proposalNotOpen)
-    };
     let voterKey = accountKey(voter);
     let weight = mapGetNat(dao.activeStake, voterKey);
     if (weight == 0) {
@@ -1366,27 +1259,7 @@ module {
     if (now < voterUnlockAt) {
       return #err(#stakeLockActive({ now = now; unlockAt = voterUnlockAt }))
     };
-    let vk = voteKey(id, voter);
-    switch (BMap.get<Text, Bool>(dao.votes, Text.compare, vk)) {
-      case (?_) { return #err(#alreadyVoted) };
-      case null {}
-    };
-    assert BMap.orderedBy<Text, Bool>(dao.votes, Text.compare);
-    dao.votes := putVote(dao.votes, vk);
-    assert BMap.orderedBy<Text, Nat>(dao.voteLocks, Text.compare);
-    dao.voteLocks := putNat(dao.voteLocks, vk, weight);
-    switch (choice) {
-      case (#yes) { dao.proposalYes += weight };
-      case (#no) { dao.proposalNo += weight }
-    };
-    #ok({
-      id = id;
-      voter = voter;
-      choice = choice;
-      weight = weight;
-      yesVotes = dao.proposalYes;
-      noVotes = dao.proposalNo
-    })
+    ProposalBook.vote(dao.proposals, voter, id, choice, weight, now)
   };
 
   private func closeImpl(
@@ -1397,44 +1270,39 @@ module {
     requires true;
     ensures supplyBalanced(dao);
     ensures configValid(dao);
-    ensures totalSupply(dao) == old(totalSupply(dao));
     ensures totalLiquid(dao) == old(totalLiquid(dao));
     ensures totalActiveStake(dao) == old(totalActiveStake(dao));
     ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
     ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
     ensures config(dao) == old(config(dao));
-    ensures forall<Text>(pure func (key : Text) : Bool =
-      mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
-      mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
-      mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
-      mapGetNat(dao.pendingWithdrawDebits, key) ==
-        old(mapGetNat(dao.pendingWithdrawDebits, key)));
   {
-    if (not dao.hasProposal or id != dao.proposalId) {
-      return #err(#proposalNotFound)
-    };
-    if (dao.proposalStatus != 0) {
-      return #err(#proposalNotOpen)
-    };
-    if (now < dao.proposalDeadline) {
-      return #err(#votingPeriodActive({ now = now; deadline = dao.proposalDeadline }))
-    };
-    let participated = dao.proposalYes + dao.proposalNo;
-    let nextStatus : Types.ProposalStatus = if (
-      participated >= dao.proposalQuorum and dao.proposalYes > dao.proposalNo
-    ) {
-      #passed
-    } else {
-      #failed
-    };
-    dao.proposalStatus := statusCode(nextStatus);
-    #ok({
-      id = id;
-      status = nextStatus;
-      yesVotes = dao.proposalYes;
-      noVotes = dao.proposalNo;
-      quorumVotes = dao.proposalQuorum
-    })
+    switch (ProposalBook.proposalModel(dao.proposals, id)) {
+      case null { #err(#proposalNotFound) };
+      case (?p) {
+        let burnable = if (
+          Proposal.isOpen(p) and
+          now >= p.deadline and
+          not Proposal.passes(p)
+        ) { p.bond } else { 0 };
+        if (burnable > 0 and (
+          dao.totalProposalBonds < burnable or
+          dao.totalSupply < burnable
+        )) {
+          return #err(#proposalNotFound)
+        };
+        switch (ProposalBook.close(dao.proposals, id, now, burnable)) {
+          case (#err err) { #err(err) };
+          case (#ok outcome) {
+            let burned = outcome.bondBurned;
+            if (burned > 0) {
+              dao.totalProposalBonds -= burned;
+              dao.totalSupply -= burned
+            };
+            #ok(outcome.receipt)
+          }
+        }
+      }
+    }
   };
 
   private func executeImpl(
@@ -1446,41 +1314,50 @@ module {
     ensures configValid(dao);
     ensures totalSupply(dao) == old(totalSupply(dao));
     ensures totalLiquid(dao) == old(totalLiquid(dao));
-    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
     ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
     ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
-    ensures forall<Text>(pure func (key : Text) : Bool =
-      mapGetNat(dao.liquid, key) == old(mapGetNat(dao.liquid, key)) and
-      mapGetNat(dao.activeStake, key) == old(mapGetNat(dao.activeStake, key)) and
-      mapGetNat(dao.pendingAmounts, key) == old(mapGetNat(dao.pendingAmounts, key)) and
-      mapGetNat(dao.pendingWithdrawDebits, key) ==
-        old(mapGetNat(dao.pendingWithdrawDebits, key)));
   {
-    if (not dao.hasProposal or id != dao.proposalId) {
-      return #err(#proposalNotFound)
-    };
-    if (dao.proposalStatus == 3) {
-      return #err(#alreadyExecuted)
-    };
-    if (dao.proposalStatus != 1) {
-      return #err(#proposalNotPassed)
-    };
-    let action = actionFromFields(
-      dao.proposalActionKind,
-      dao.proposalActionQuorum,
-      dao.proposalActionThreshold
-    );
-    if (not actionValid(config(dao), action, dao.totalSupply)) {
-      return #err(#invalidConfigAction)
-    };
-    let nextConfig = applyAction(config(dao), action);
-    dao.quorumVotes := nextConfig.quorumVotes;
-    dao.proposalThreshold := nextConfig.proposalThreshold;
-    dao.proposalStatus := 3;
-    #ok({
-      id = id;
-      config = nextConfig
-    })
+    switch (ProposalBook.proposalModel(dao.proposals, id)) {
+      case null { return #err(#proposalNotFound) };
+      case (?p) {
+        if (Proposal.isExecuted(p)) {
+          return #err(#alreadyExecuted)
+        };
+        if (not Proposal.isPassed(p)) {
+          return #err(#proposalNotPassed)
+        };
+        if (not actionValid(config(dao), p.action, dao.totalSupply)) {
+          return #err(#invalidConfigAction)
+        };
+        if (p.bond > dao.totalProposalBonds) {
+          return #err(#proposalNotFound)
+        };
+        let nextConfig = applyAction(config(dao), p.action);
+        switch (ProposalBook.execute(
+          dao.proposals,
+          id,
+          nextConfig,
+          p.bond,
+          p.proposer,
+          p.action
+        )) {
+          case (#err err) { #err(err) };
+          case (#ok outcome) {
+            let returned = outcome.bondReturned;
+            if (returned > 0) {
+              let stakeBefore = mapGetNat(dao.activeStake, outcome.proposer);
+              assert BMap.orderedBy<Text, Nat>(dao.activeStake, Text.compare);
+              dao.activeStake := putNat(dao.activeStake, outcome.proposer, stakeBefore + returned);
+              dao.totalProposalBonds -= returned;
+              dao.totalActiveStake += returned
+            };
+            dao.quorumVotes := nextConfig.quorumVotes;
+            dao.proposalThreshold := nextConfig.proposalThreshold;
+            #ok(outcome.receipt)
+          }
+        }
+      }
+    }
   };
 
   public func finishDepositOk(
@@ -1711,7 +1588,6 @@ module {
     ensures configValid(dao);
     ensures totalSupply(dao) == old(totalSupply(dao));
     ensures totalLiquid(dao) == old(totalLiquid(dao));
-    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
     ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
     ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
   {
@@ -1746,7 +1622,6 @@ module {
     requires true;
     ensures supplyBalanced(dao);
     ensures configValid(dao);
-    ensures totalSupply(dao) == old(totalSupply(dao));
     ensures totalLiquid(dao) == old(totalLiquid(dao));
     ensures totalActiveStake(dao) == old(totalActiveStake(dao));
     ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
@@ -1765,7 +1640,6 @@ module {
     ensures configValid(dao);
     ensures totalSupply(dao) == old(totalSupply(dao));
     ensures totalLiquid(dao) == old(totalLiquid(dao));
-    ensures totalActiveStake(dao) == old(totalActiveStake(dao));
     ensures totalPendingUnstake(dao) == old(totalPendingUnstake(dao));
     ensures totalPendingWithdraw(dao) == old(totalPendingWithdraw(dao));
   {

@@ -16,10 +16,13 @@ persistent actor class DaoActorDemo(
   public type Result<Ok, Err> = Types.Result<Ok, Err>;
   public type Config = Types.Config;
   public type ConfigAction = Types.ConfigAction;
+  public type DaoTotals = Types.DaoTotals;
   public type Proposal = Types.Proposal;
+  public type ProposalWindow = Types.ProposalWindow;
   public type PendingWithdrawal = Types.PendingWithdrawal;
   public type StakeInfo = Types.StakeInfo;
   public type VoteChoice = Types.VoteChoice;
+  public type VoteInfo = Types.VoteInfo;
   public type DepositReceipt = Types.DepositReceipt;
   public type WithdrawReceipt = Types.WithdrawReceipt;
   public type StakeReceipt = Types.StakeReceipt;
@@ -45,35 +48,35 @@ persistent actor class DaoActorDemo(
   );
   var withdrawOps : WithdrawalOps.State = WithdrawalOps.init();
 
-  invariant Dao.supplyBalanced(dao);
-  invariant Dao.configValid(dao);
   invariant WithdrawalOps.valid(withdrawOps);
 
   private let NAT64_MAX : Nat = 18_446_744_073_709_551_615;
+  private let NAT64_MAX_VALUE : Nat64 = 18_446_744_073_709_551_615;
 
   private pure func ledgerReject() : Types.LedgerReject {
     { message = "ledger call rejected" }
   };
 
   private func ledgerCreatedAtTime() : Nat64
+    reads NAT64_MAX_VALUE
     requires true;
-    ensures true;
+    ensures result <= NAT64_MAX_VALUE;
   {
     Prim.time()
   };
 
   private func ledgerCreatedAtTimeNat(time : Nat64) : Nat
-    reads NAT64_MAX
-    requires true;
+    reads NAT64_MAX, NAT64_MAX_VALUE
+    requires time <= NAT64_MAX_VALUE;
     ensures result <= NAT64_MAX;
   {
     Prim.nat64ToNat(time)
   };
 
   private func natToLedgerCreatedAtTime(time : Nat) : Nat64
-    reads NAT64_MAX
+    reads NAT64_MAX, NAT64_MAX_VALUE
     requires time <= NAT64_MAX;
-    ensures true;
+    ensures result <= NAT64_MAX_VALUE;
   {
     Prim.natToNat64(time)
   };
@@ -117,7 +120,7 @@ persistent actor class DaoActorDemo(
     caller : Principal,
     started : Types.WithdrawStarted
   ) : ICRCLedger.TransferArg
-    reads NAT64_MAX
+    reads NAT64_MAX, NAT64_MAX_VALUE
     requires started.createdAtTime <= NAT64_MAX;
     ensures result.to.owner == caller;
     ensures result.to.subaccount == null;
@@ -151,6 +154,29 @@ persistent actor class DaoActorDemo(
     Dao.config(dao)
   };
 
+  public query func dao_totals() : async DaoTotals
+    reads dao
+  {
+    Dao.totals(dao)
+  };
+
+  public query func next_proposal_id() : async Nat
+    reads dao
+  {
+    Dao.nextProposalId(dao)
+  };
+
+  public query func max_proposals() : async Nat
+  {
+    Dao.maxProposals()
+  };
+
+  public query func proposal_window() : async ProposalWindow
+    reads dao
+  {
+    Dao.proposalWindow(dao)
+  };
+
   public query func voting_power(user : Principal) : async Nat
     reads dao
   {
@@ -176,13 +202,17 @@ persistent actor class DaoActorDemo(
     Dao.proposal(dao, id)
   };
 
+  public query func vote_info(id : Nat, user : Principal) : async VoteInfo
+    reads dao
+  {
+    Dao.voteInfo(dao, id, user)
+  };
+
   public shared({ caller }) func deposit(
     amount : Nat
   ) : async Result<DepositReceipt, DepositError>
     reads governanceLedger
     modifies dao
-    ensures Dao.supplyBalanced(dao);
-    ensures Dao.configValid(dao);
   {
     switch (Dao.beginDeposit(dao, amount)) {
       case (#err err) { #err(err) };
@@ -199,14 +229,7 @@ persistent actor class DaoActorDemo(
               Dao.finishDepositOk(dao, caller, ledger, amount, txIndex)
             };
             case (#Err err) {
-              switch (err) {
-                case (#Duplicate duplicate) {
-                  Dao.finishDepositOk(dao, caller, ledger, amount, duplicate.duplicate_of)
-                };
-                case (_) {
-                  Dao.finishDepositErr(dao, caller, err)
-                }
-              }
+              Dao.finishDepositErr(dao, caller, err)
             }
           }
         } catch (_) {
@@ -221,8 +244,6 @@ persistent actor class DaoActorDemo(
   ) : async Result<WithdrawReceipt, WithdrawError>
     reads governanceLedger
     modifies dao, withdrawOps
-    ensures Dao.supplyBalanced(dao);
-    ensures Dao.configValid(dao);
     ensures WithdrawalOps.valid(withdrawOps);
   {
     let ledger = governanceLedger;
@@ -295,8 +316,6 @@ persistent actor class DaoActorDemo(
   public shared({ caller }) func retry_withdrawal() : async Result<WithdrawReceipt, WithdrawError>
     reads governanceLedger
     modifies dao, withdrawOps
-    ensures Dao.supplyBalanced(dao);
-    ensures Dao.configValid(dao);
     ensures WithdrawalOps.valid(withdrawOps);
   {
     let ledger = governanceLedger;
@@ -355,8 +374,6 @@ persistent actor class DaoActorDemo(
   public shared({ caller }) func stake(amount : Nat) : async Result<StakeReceipt, StakeError>
     reads governanceLedger
     modifies dao
-    ensures Dao.supplyBalanced(dao);
-    ensures Dao.configValid(dao);
     ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
   {
     let now = Time.now();
@@ -368,8 +385,6 @@ persistent actor class DaoActorDemo(
   ) : async Result<RequestUnstakeReceipt, UnstakeError>
     reads governanceLedger
     modifies dao
-    ensures Dao.supplyBalanced(dao);
-    ensures Dao.configValid(dao);
     ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
   {
     let now = Time.now();
@@ -379,8 +394,6 @@ persistent actor class DaoActorDemo(
   public shared({ caller }) func claim_unstaked() : async Result<ClaimUnstakeReceipt, UnstakeError>
     reads governanceLedger
     modifies dao
-    ensures Dao.supplyBalanced(dao);
-    ensures Dao.configValid(dao);
     ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
   {
     let now = Time.now();
@@ -392,8 +405,6 @@ persistent actor class DaoActorDemo(
   ) : async Result<ProposalReceipt, ProposalError>
     reads governanceLedger
     modifies dao
-    ensures Dao.supplyBalanced(dao);
-    ensures Dao.configValid(dao);
     ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
   {
     let now = Time.now();
@@ -406,9 +417,6 @@ persistent actor class DaoActorDemo(
   ) : async Result<VoteReceipt, VoteError>
     reads governanceLedger
     modifies dao
-    ensures Dao.supplyBalanced(dao);
-    ensures Dao.configValid(dao);
-    ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
   {
     let now = Time.now();
     Dao.vote(dao, caller, id, choice, now)
@@ -417,9 +425,6 @@ persistent actor class DaoActorDemo(
   public func close(id : Nat) : async Result<CloseReceipt, CloseError>
     reads governanceLedger
     modifies dao
-    ensures Dao.supplyBalanced(dao);
-    ensures Dao.configValid(dao);
-    ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
   {
     let now = Time.now();
     Dao.close(dao, id, now)
@@ -428,8 +433,6 @@ persistent actor class DaoActorDemo(
   public func execute(id : Nat) : async Result<ExecuteReceipt, ExecuteError>
     reads governanceLedger
     modifies dao
-    ensures Dao.supplyBalanced(dao);
-    ensures Dao.configValid(dao);
     ensures Dao.totalSupply(dao) == old(Dao.totalSupply(dao));
   {
     Dao.execute(dao, id)

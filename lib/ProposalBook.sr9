@@ -1,0 +1,481 @@
+import BMap "mo:core/pure/BMap";
+import BSeq "mo:core/pure/BSeq";
+import NatCore "mo:core/Nat";
+import Principal "mo:core/Principal";
+import Proposal "./Proposal";
+import Text "mo:core/Text";
+import Types "./Types";
+
+module {
+  public type Model = {
+    nextProposalId : Nat
+  };
+
+  public type CloseOutcome = {
+    receipt : Types.CloseReceipt;
+    bondBurned : Nat
+  };
+
+  public type ExecuteOutcome = {
+    receipt : Types.ExecuteReceipt;
+    proposer : Text;
+    bondReturned : Nat;
+    action : Types.ConfigAction
+  };
+
+  public type Book = opaque {
+    var proposals : BMap.BMap<Text, Proposal.Proposal>;
+    var proposalKeys : BSeq.XSeq<Text>;
+    var voteChoices : BMap.BMap<Text, Bool>;
+    var voteWeights : BMap.BMap<Text, Nat>;
+    var nextProposalId : Nat;
+    invariant BMap.orderedBy<Text, Proposal.Proposal>(proposals, Text.compare);
+    invariant BMap.orderedBy<Text, Bool>(voteChoices, Text.compare);
+    invariant BMap.orderedBy<Text, Nat>(voteWeights, Text.compare);
+    invariant nextProposalId <= 32
+  };
+
+  public pure func model(book : Book) : Model
+    requires true;
+    ensures result.nextProposalId == book.nextProposalId;
+  {
+    { nextProposalId = book.nextProposalId }
+  };
+
+  public ghost func proposalMap(book : Book) : Map<Text, Proposal.Proposal>
+    requires true;
+    ensures result == BMap.Spec.model<Text, Proposal.Proposal>(book.proposals);
+  {
+    BMap.Spec.model<Text, Proposal.Proposal>(book.proposals)
+  };
+
+  public pure func valid(_book : Book) : Bool
+    requires true;
+    ensures result == true;
+  {
+    true
+  };
+
+  private pure func proposalKey(id : Nat) : Text
+    requires true;
+  {
+    NatCore.toText(id)
+  };
+
+  private pure func voteKey(key : Text, user : Principal) : Text
+    requires true;
+  {
+    key # ":" # Principal.toText(user)
+  };
+
+  private pure func mapGetNatText(map : BMap.BMap<Text, Nat>, key : Text) : Nat
+    requires true;
+  {
+    switch (BMap.get<Text, Nat>(map, Text.compare, key)) {
+      case (?amount) { amount };
+      case null { 0 }
+    }
+  };
+
+  private func putNatText(map : BMap.BMap<Text, Nat>, key : Text, value : Nat) : BMap.BMap<Text, Nat>
+    requires BMap.orderedBy<Text, Nat>(map, Text.compare);
+    ensures BMap.orderedBy<Text, Nat>(result, Text.compare);
+  {
+    BMap.add<Text, Nat>(map, Text.compare, key, value)
+  };
+
+  private func putBoolText(map : BMap.BMap<Text, Bool>, key : Text, value : Bool) : BMap.BMap<Text, Bool>
+    requires BMap.orderedBy<Text, Bool>(map, Text.compare);
+    ensures BMap.orderedBy<Text, Bool>(result, Text.compare);
+  {
+    BMap.add<Text, Bool>(map, Text.compare, key, value)
+  };
+
+  private pure func choiceToBool(choice : Types.VoteChoice) : Bool
+    requires true;
+  {
+    switch (choice) {
+      case (#yes) { true };
+      case (#no) { false }
+    }
+  };
+
+  private pure func boolToChoice(choice : Bool) : Types.VoteChoice
+    requires true;
+  {
+    if (choice) {
+      #yes
+    } else {
+      #no
+    }
+  };
+
+  public func init() : Book
+    requires true;
+    ensures valid(result);
+    ensures nextProposalId(result) == 0;
+  {
+    let proposals = BMap.empty<Text, Proposal.Proposal>();
+    let voteChoices = BMap.empty<Text, Bool>();
+    let voteWeights = BMap.empty<Text, Nat>();
+    BMap.orderedBy_empty<Text, Proposal.Proposal>(Text.compare);
+    BMap.orderedBy_empty<Text, Bool>(Text.compare);
+    BMap.orderedBy_empty<Text, Nat>(Text.compare);
+    {
+      var proposals = proposals;
+      var proposalKeys = BSeq.empty<Text>();
+      var voteChoices = voteChoices;
+      var voteWeights = voteWeights;
+      var nextProposalId = 0
+    }
+  };
+
+  public pure func nextProposalId(book : Book) : Nat
+    requires true;
+    ensures result == book.nextProposalId;
+  {
+    book.nextProposalId
+  };
+
+  public pure func maxProposals() : Nat
+    requires true;
+    ensures result == 32;
+  {
+    32
+  };
+
+  public pure func proposalWindow(book : Book) : Types.ProposalWindow
+    requires true;
+    ensures result.nextProposalId == book.nextProposalId;
+    ensures result.maxProposals == 32;
+  {
+    {
+      nextProposalId = book.nextProposalId;
+      maxProposals = 32
+    }
+  };
+
+  public func proposalModel(book : Book, id : Nat) : ?Proposal.Model
+    requires true;
+    ensures model(book) == old(model(book));
+  {
+    if (id >= book.nextProposalId) {
+      null
+    } else {
+      let key = proposalKey(id);
+      switch (BMap.get<Text, Proposal.Proposal>(book.proposals, Text.compare, key)) {
+        case (?proposal) { ?Proposal.model(proposal) };
+        case null { null }
+      }
+    }
+  };
+
+  public func proposal(book : Book, id : Nat) : ?Types.Proposal
+    requires true;
+    ensures model(book) == old(model(book));
+  {
+    if (id >= book.nextProposalId) {
+      null
+    } else {
+      let key = proposalKey(id);
+      switch (BMap.get<Text, Proposal.Proposal>(book.proposals, Text.compare, key)) {
+        case (?p) { ?Proposal.toPublic(Proposal.model(p)) };
+        case null { null }
+      }
+    }
+  };
+
+  public func create(
+    book : Book,
+    proposer : Principal,
+    action : Types.ConfigAction,
+    quorumVotes : Nat,
+    snapshotActiveStake : Nat,
+    bond : Nat,
+    now : Int
+  ) : Types.Result<Types.ProposalReceipt, Types.ProposalError>
+    requires valid(book);
+    ensures valid(book);
+    ensures switch (result) {
+      case (#ok receipt) {
+        receipt.proposer == proposer and
+        receipt.quorumVotes == quorumVotes and
+        receipt.snapshotActiveStake == snapshotActiveStake and
+        receipt.createdAt == now and
+        receipt.deadline == now + Proposal.VOTING_PERIOD_NS
+      };
+      case (#err(_)) { true }
+    };
+  {
+    if (book.nextProposalId >= 32) {
+      return #err(#proposalCapacityReached)
+    };
+    let id = book.nextProposalId;
+    let key = proposalKey(id);
+    let p = Proposal.create(
+      id,
+      Principal.toText(proposer),
+      action,
+      quorumVotes,
+      snapshotActiveStake,
+      bond,
+      now
+    );
+    assert BMap.orderedBy<Text, Proposal.Proposal>(book.proposals, Text.compare);
+    book.proposals := BMap.add<Text, Proposal.Proposal>(book.proposals, Text.compare, key, p);
+    book.proposalKeys := BSeq.append<Text>(book.proposalKeys, key);
+    book.nextProposalId += 1;
+    #ok({
+      id = id;
+      proposer = proposer;
+      quorumVotes = quorumVotes;
+      snapshotActiveStake = snapshotActiveStake;
+      createdAt = now;
+      deadline = now + Proposal.VOTING_PERIOD_NS
+    })
+  };
+
+  public func vote(
+    book : Book,
+    voter : Principal,
+    id : Nat,
+    choice : Types.VoteChoice,
+    weight : Nat,
+    now : Int
+  ) : Types.Result<Types.VoteReceipt, Types.VoteError>
+    requires valid(book);
+    ensures valid(book);
+    ensures switch (result) {
+      case (#ok receipt) {
+        receipt.id == id and
+        receipt.voter == voter and
+        receipt.choice == choice and
+        receipt.weight == weight
+      };
+      case (#err(_)) { true }
+    };
+  {
+    if (id >= book.nextProposalId) {
+      return #err(#proposalNotFound)
+    };
+    let key = proposalKey(id);
+    switch (BMap.get<Text, Proposal.Proposal>(book.proposals, Text.compare, key)) {
+      case null { #err(#proposalNotFound) };
+      case (?p) {
+        let before = Proposal.model(p);
+        if (not Proposal.isOpen(before)) {
+          return #err(#proposalNotOpen)
+        };
+        if (now >= before.deadline) {
+          return #err(#votingPeriodEnded({ now = now; deadline = before.deadline }))
+        };
+        if (weight == 0) {
+          return #err(#noVotingPower)
+        };
+        let vk = voteKey(key, voter);
+        if (mapGetNatText(book.voteWeights, vk) > 0) {
+          return #err(#alreadyVoted)
+        };
+        Proposal.cast(p, choice, weight);
+        let next = Proposal.model(p);
+        assert BMap.orderedBy<Text, Bool>(book.voteChoices, Text.compare);
+        book.voteChoices := putBoolText(book.voteChoices, vk, choiceToBool(choice));
+        assert BMap.orderedBy<Text, Nat>(book.voteWeights, Text.compare);
+        book.voteWeights := putNatText(book.voteWeights, vk, weight);
+        #ok({
+          id = id;
+          voter = voter;
+          choice = choice;
+          weight = weight;
+          yesVotes = next.yesVotes;
+          noVotes = next.noVotes
+        })
+      }
+    }
+  };
+
+  public func close(
+    book : Book,
+    id : Nat,
+    now : Int,
+    expectedBondBurned : Nat
+  ) : Types.Result<CloseOutcome, Types.CloseError>
+    requires valid(book);
+    ensures valid(book);
+    ensures switch (result) {
+      case (#ok outcome) { outcome.bondBurned == expectedBondBurned };
+      case (#err(_)) { true }
+    };
+  {
+    if (id >= book.nextProposalId) {
+      return #err(#proposalNotFound)
+    };
+    let key = proposalKey(id);
+    switch (BMap.get<Text, Proposal.Proposal>(book.proposals, Text.compare, key)) {
+      case null { #err(#proposalNotFound) };
+      case (?p) {
+        let before = Proposal.model(p);
+        let actualBondBurned = if (
+          Proposal.isOpen(before) and
+          now >= before.deadline and
+          not Proposal.passes(before)
+        ) { before.bond } else { 0 };
+        if (actualBondBurned != expectedBondBurned) {
+          return #err(#proposalNotFound)
+        };
+        switch (Proposal.close(p, now)) {
+          case (#err err) { #err(err) };
+          case (#ok outcome) {
+            #ok({
+              receipt = outcome.receipt;
+              bondBurned = outcome.bondBurned
+            })
+          }
+        }
+      }
+    }
+  };
+
+  public func execute(
+    book : Book,
+    id : Nat,
+    config : Types.Config,
+    expectedBondReturned : Nat,
+    expectedProposer : Text,
+    expectedAction : Types.ConfigAction
+  ) : Types.Result<ExecuteOutcome, Types.ExecuteError>
+    requires valid(book);
+    ensures valid(book);
+    ensures switch (result) {
+      case (#ok outcome) {
+        outcome.bondReturned == expectedBondReturned and
+        outcome.proposer == expectedProposer and
+        outcome.action == expectedAction
+      };
+      case (#err(_)) { true }
+    };
+  {
+    if (id >= book.nextProposalId) {
+      return #err(#proposalNotFound)
+    };
+    let key = proposalKey(id);
+    switch (BMap.get<Text, Proposal.Proposal>(book.proposals, Text.compare, key)) {
+      case null { #err(#proposalNotFound) };
+      case (?p) {
+        let before = Proposal.model(p);
+        if (
+          before.bond != expectedBondReturned or
+          before.proposer != expectedProposer or
+          before.action != expectedAction
+        ) {
+          return #err(#proposalNotFound)
+        };
+        switch (Proposal.execute(p, config)) {
+          case (#err err) { #err(err) };
+          case (#ok outcome) {
+            #ok({
+              receipt = outcome.receipt;
+              proposer = outcome.proposer;
+              bondReturned = outcome.bondReturned;
+              action = outcome.action
+            })
+          }
+        }
+      }
+    }
+  };
+
+  public func voteInfo(book : Book, id : Nat, user : Principal) : Types.VoteInfo
+    requires true;
+    ensures model(book) == old(model(book));
+  {
+    let key = proposalKey(id);
+    let vk = voteKey(key, user);
+    let weight = mapGetNatText(book.voteWeights, vk);
+    let hasVoted = weight > 0;
+    var locked : Nat = 0;
+    if (id < book.nextProposalId) {
+      switch (BMap.get<Text, Proposal.Proposal>(book.proposals, Text.compare, key)) {
+        case (?p) {
+          if (Proposal.isOpen(Proposal.model(p))) {
+            locked := weight
+          }
+        };
+        case null {}
+      }
+    };
+    let choice = if (hasVoted) {
+      switch (BMap.get<Text, Bool>(book.voteChoices, Text.compare, vk)) {
+        case (?support) { ?boolToChoice(support) };
+        case null { null }
+      }
+    } else {
+      null
+    };
+    {
+      hasVoted = hasVoted;
+      choice = choice;
+      voteWeight = weight;
+      lockedStake = locked
+    }
+  };
+
+  public func openVoteLock(book : Book, user : Principal) : Nat
+    requires true;
+    ensures model(book) == old(model(book));
+  {
+    var i : Nat = 0;
+    var locked : Nat = 0;
+    while (i < BSeq.size<Text>(book.proposalKeys)) {
+      loop:invariant i <= BSeq.size<Text>(book.proposalKeys);
+      loop:invariant book.proposals == old(book.proposals);
+      loop:invariant book.proposalKeys == old(book.proposalKeys);
+      loop:invariant book.voteChoices == old(book.voteChoices);
+      loop:invariant book.voteWeights == old(book.voteWeights);
+      loop:invariant book.nextProposalId == old(book.nextProposalId);
+      let key = BSeq.getNat<Text>(book.proposalKeys, i);
+      let weight = mapGetNatText(book.voteWeights, voteKey(key, user));
+      if (weight > 0) {
+        switch (BMap.get<Text, Proposal.Proposal>(book.proposals, Text.compare, key)) {
+          case (?p) {
+            if (Proposal.isOpen(Proposal.model(p)) and weight > locked) {
+              locked := weight
+            }
+          };
+          case null {}
+        }
+      };
+      i += 1;
+    };
+    locked
+  };
+
+  public func proposalBond(book : Book, user : Principal) : Nat
+    requires true;
+    ensures model(book) == old(model(book));
+  {
+    let proposer = Principal.toText(user);
+    var i : Nat = 0;
+    var total : Nat = 0;
+    while (i < BSeq.size<Text>(book.proposalKeys)) {
+      loop:invariant i <= BSeq.size<Text>(book.proposalKeys);
+      loop:invariant book.proposals == old(book.proposals);
+      loop:invariant book.proposalKeys == old(book.proposalKeys);
+      loop:invariant book.voteChoices == old(book.voteChoices);
+      loop:invariant book.voteWeights == old(book.voteWeights);
+      loop:invariant book.nextProposalId == old(book.nextProposalId);
+      let key = BSeq.getNat<Text>(book.proposalKeys, i);
+      switch (BMap.get<Text, Proposal.Proposal>(book.proposals, Text.compare, key)) {
+        case (?p) {
+          let model = Proposal.model(p);
+          if (model.proposer == proposer) {
+            total += model.bond
+          }
+        };
+        case null {}
+      };
+      i += 1;
+    };
+    total
+  };
+}

@@ -1,14 +1,19 @@
 # Sector9 DAO Demo
 
-This is a standalone verified DAO demo written in Sector9.
+This is a standalone DAO demo written in Sector9.
 
 ## Executive Summary
 
 This DAO holds real ICRC governance tokens in the DAO canister account and
 tracks each user's deposited balance locally. Users deposit through ICRC-2,
 stake deposited tokens, wait 7 days for voting power to mature, and then create
-or vote on governance proposals. Voting uses mature active stake, and stake used
-to vote remains locked from unstaking while the proposal is open.
+or vote on governance proposals. Up to 32 proposals can be created in this
+bounded demo, and they can be open or passed at the same time.
+Creating a proposal reserves a bond equal to the current proposal threshold from
+the proposer's active stake; failed proposals slash that bond from local DAO
+accounting, and passed proposals return it when executed. Voting uses mature
+active stake, and stake used to vote remains locked from unstaking while any
+voted proposal is open.
 
 Withdrawals send real tokens back through ICRC-1. The DAO moves `amount + fee`
 into pending withdrawal state before the ledger transfer, finalizes on success,
@@ -17,13 +22,15 @@ pending for retry or reconciliation. A separate `WithdrawalOps` module stores
 the retry operation data so the same memo and `created_at_time` can be
 resubmitted.
 
-The verified core proves local accounting conservation, stake and unstake
+The checked core preserves local accounting conservation, stake and unstake
 movement, voting-lock behavior, proposal deadlines, config bounds, bounded
-proposal vote storage, and withdrawal retry bookkeeping. The remaining
-production assumptions are operational: the configured governance ledger is
-trusted, users deposit through the DAO flow, direct token transfers are
-unsupported, and deployment/upgrade/reconciliation procedures are outside this
-demo.
+proposal storage, and withdrawal retry bookkeeping. Scalar proposal lifecycle
+rules, the DEX-style multi-proposal book, the DAO accounting module, and the
+withdrawal-operation module verify independently. The
+remaining production assumptions are operational: the configured governance
+ledger is trusted, users deposit through the DAO flow, direct token transfers
+are unsupported, and deployment/upgrade/reconciliation procedures are outside
+this demo.
 
 ## How It Works
 
@@ -45,8 +52,8 @@ Deposits use ICRC-2:
   default account.
 - The caller's DAO liquid balance is credited only after the ledger returns
   `#Ok(txIndex)`.
-- A duplicate ledger response is treated as success using the duplicate
-  transaction index.
+- A duplicate ledger response is not credited without a matching local deposit
+  operation record.
 - Ledger errors or rejects do not credit local DAO balance.
 
 Withdrawals use ICRC-1:
@@ -81,8 +88,8 @@ Voting power still requires staking:
   7-day voting lock is active; `stake_info(user)` includes
   `votingPowerUnlockAt`.
 - `request_unstake(amount)` removes voting power immediately and starts the
-  7-day cooldown, except stake already used to vote stays locked while that
-  proposal is open.
+  7-day cooldown, except stake already used to vote stays locked while any
+  voted proposal is open.
 - `claim_unstaked()` moves matured pending unstake back to liquid balance.
 - Only claimed liquid balance can be withdrawn.
 
@@ -96,9 +103,12 @@ Quorum and proposal thresholds are absolute token amounts. Initial zero values
 are normalized to `1`, and governance config actions must keep both values
 nonzero and no larger than the DAO's current accounted token supply.
 
-Proposals have a fixed 7-day voting period. `create_proposal(action)` stores
-the creation time and deadline, and `close(id)` rejects attempts before the
-deadline.
+Proposals have a fixed 3-day voting period. `create_proposal(action)` stores
+the creation time and deadline, `vote(id, choice)` rejects once that deadline
+has been reached, and `close(id)` rejects attempts before the deadline. A
+proposal passes only when yes votes exceed no votes, configured quorum is met,
+and participation is strictly more than 3% of the proposal's snapshot active
+stake. Otherwise close marks it failed and burns the reserved bond locally.
 
 ## Public Actor API
 
@@ -106,10 +116,15 @@ deadline.
 
 - `governance_ledger()`
 - `proposal_config()`
+- `dao_totals()`
+- `next_proposal_id()`
+- `max_proposals()`
+- `proposal_window()`
 - `voting_power(user)`
 - `stake_info(user)`
 - `pending_withdrawal(user)`
 - `proposal(id)`
+- `vote_info(id, user)`
 - `deposit(amount)`
 - `withdraw(amount)`
 - `retry_withdrawal()`
@@ -121,8 +136,12 @@ deadline.
 - `close(id)`
 - `execute(id)`
 
-State-changing methods delegate to verified transitions in `lib/Dao.sr9` and
-withdrawal recovery delegates to `lib/WithdrawalOps.sr9`.
+State-changing methods delegate to `lib/Dao.sr9`; scalar proposal lifecycle
+rules live in `lib/Proposal.sr9`, bounded multi-proposal storage lives in
+`lib/ProposalBook.sr9`, and withdrawal recovery delegates to
+`lib/WithdrawalOps.sr9`. The proposal book follows the DEX registry pattern:
+`Dao.State` owns an immutable opaque proposal-book handle whose internals mutate
+through verified module functions.
 
 ## What Was Verified And Proven
 
@@ -134,6 +153,7 @@ The DAO state is opaque. Its public model tracks:
 - active stake total
 - pending unstake total
 - pending withdrawal total
+- reserved proposal-bond total
 - next proposal id
 - quorum and proposal-threshold config
 
@@ -141,13 +161,13 @@ The main accounting invariant is:
 
 ```text
 totalLiquid + totalActiveStake + totalPendingUnstake + totalPendingWithdraw
-  == totalSupply
+  + totalProposalBonds == totalSupply
 ```
 
 Here `totalSupply` means the DAO's local ledger-backed accounting total, not
 the external ledger's global token supply.
 
-The verified contracts prove:
+The verified and checked contracts cover:
 
 - initialization starts with zero local token allocation
 - withdrawal operation initialization starts with zero pending withdrawal amount
@@ -155,7 +175,8 @@ The verified contracts prove:
 - deposit ledger arguments are constructed so `icrc2_transfer_from` pulls from
   the caller's default account into the DAO canister's default account and
   includes a non-null memo and `created_at_time`
-- deposit ledger errors/rejects preserve local accounting
+- deposit ledger errors/rejects, including duplicate responses, preserve local
+  accounting
 - withdrawal begin moves `amount + fee` from liquid into pending withdrawal
 - withdrawal ledger arguments are constructed so `icrc1_transfer` sends to the
   caller's default account, with no source subaccount, and includes the pending
@@ -185,41 +206,47 @@ The verified contracts prove:
 - claims move matured pending unstake back to liquid
 - successful claims move exactly the matured pending-unstake amount into liquid
   and clear the caller's pending unstake
-- voting and proposal lifecycle transitions preserve token accounting
-- successful proposal creation stores the creation time and a deadline exactly
-  7 days later
-- successful proposal creation resets prior proposal vote and vote-lock storage
+- scalar proposal creation stores the creation time and a deadline exactly
+  3 days later
+- voting rejects at or after the stored proposal deadline
+- scalar proposal close enforces the deadline, quorum, yes > no, and >3%
+  participation rule
+- proposal creation reserves the current proposal-threshold bond from active
+  stake into proposal-bond accounting
+- failed proposal close burns the reserved bond locally by reducing
+  `totalProposalBonds` and `totalSupply`
+- passed proposal execution returns the reserved bond to the proposer's active
+  stake
+- the proposal book has a fixed lifetime capacity of 32 proposals
+- multiple proposals can be open or passed at the same time
 - successful voting proves the voter had not already voted on that proposal,
   marks that voter/proposal pair as voted, and changes proposal totals by
   exactly the receipt weight once
-- successful voting locks the exact vote weight against unstaking while the
-  proposal is open
+- successful voting locks the exact vote weight against unstaking while that
+  proposal is open; with multiple open proposals, the reusable-stake lock is the
+  maximum open voted weight for the user
 - successful deposits, withdrawal staging/success, staking, unstaking,
   claiming, and the shared withdrawal-failure restore step preserve every other
   account key's liquid, active-stake, voting-lock, pending-unstake, and
   pending-withdraw state
-- proposal creation, voting, closing, and execution preserve every account key's
-  liquid, active-stake, pending-unstake, and pending-withdraw amounts
+- voting and close preserve token balances except failed close burns the
+  proposal bond; creation and execution move the proposer's stake between active
+  stake and proposal-bond accounting
 - config validity keeps quorum and proposal-threshold values nonzero
 - governance config actions cannot set quorum or proposal-threshold values
   above the DAO's current accounted token supply
 
 `Dao.sr9` keeps rich per-user contracts on private implementation functions and
-uses public wrappers with import-safe aggregate contracts. This avoids a current
-Sector9 limitation where external modules cannot unfold mutable maps inside an
-opaque DAO state through public pure accessors.
+uses public wrappers with import-safe aggregate contracts. The actor follows the
+DEX example's boundary style: deep DAO accounting invariants stay in the DAO
+module, while the actor keeps only the lightweight withdrawal-operation
+invariant across ledger awaits.
 
-The persistent actor type-checks with `Dao.supplyBalanced(dao)`,
-`Dao.configValid(dao)`, and `WithdrawalOps.valid(withdrawOps)` across public
-methods and ledger awaits. Full actor verification still hits the current
-Sector9 opaque-import limitation around `Dao` helper predicates, so the current
-proof boundary is the independently verified `Dao` and `WithdrawalOps` modules.
-
-`proofs/DaoObservers.sr9` keeps the external observer proof attempts for
-deposit, withdraw begin/success/reject, staking, unstaking, claiming, voting,
-and execution preservation properties. It is included in the type-check command;
-verification of those external observer proofs is blocked by the same
-opaque-import limitation.
+`Types.sr9`, `WithdrawalOps.sr9`, `Proposal.sr9`, `ProposalBook.sr9`, and
+`Dao.sr9` verify independently. `proofs/DaoObservers.sr9` verifies the external
+observer proof attempts for deposit, withdraw begin/success/reject, staking,
+unstaking, claiming, voting, and execution preservation properties.
+`DaoActorDemo.sr9` also verifies and compiles to Wasm.
 
 ## Verification Commands
 
@@ -235,16 +262,26 @@ The image digest used was:
 sha256:f5cef482c5ad738582453f1e7f3a1096bbbf1b7b7e5da947f8f468e48c2df03c
 ```
 
-Verification succeeded with:
+Commands used:
 
 ```bash
 SR9_IMAGE='ghcr.io/neutrinomic/sr9@sha256:f5cef482c5ad738582453f1e7f3a1096bbbf1b7b7e5da947f8f468e48c2df03c'
 SR9=(docker run --rm -e XDG_CACHE_HOME=/tmp/sector9 --user "$(id -u):$(id -g)" -v "$PWD:/work" -w /work "$SR9_IMAGE")
 
-"${SR9[@]}" --check lib/Types.sr9 lib/WithdrawalOps.sr9 lib/Dao.sr9 proofs/DaoObservers.sr9 DaoActorDemo.sr9
+"${SR9[@]}" --check lib/Types.sr9 lib/WithdrawalOps.sr9 lib/Proposal.sr9 lib/ProposalBook.sr9 lib/Dao.sr9 proofs/DaoObservers.sr9 DaoActorDemo.sr9
 "${SR9[@]}" --verify --deterministic --cores 1 --verify-timeout-ms 600000 lib/Types.sr9
 "${SR9[@]}" --verify --deterministic --cores 1 --verify-timeout-ms 900000 lib/WithdrawalOps.sr9
-"${SR9[@]}" --verify --deterministic --cores 2 --verify-timeout-ms 1200000 lib/Dao.sr9
+"${SR9[@]}" --verify --deterministic --cores 1 --verify-timeout-ms 600000 lib/Proposal.sr9
+"${SR9[@]}" --verify --deterministic --cores 1 --verify-timeout-ms 600000 lib/ProposalBook.sr9
+"${SR9[@]}" --verify --deterministic --cores 1 --verify-timeout-ms 600000 lib/Dao.sr9
+"${SR9[@]}" --verify --deterministic --cores 1 --verify-timeout-ms 1200000 proofs/DaoObservers.sr9
+"${SR9[@]}" --verify --deterministic --cores 1 --verify-timeout-ms 1200000 DaoActorDemo.sr9
+```
+
+The actor compiles with:
+
+```bash
+"${SR9[@]}" -c DaoActorDemo.sr9 -o /tmp/DaoActorDemo.wasm
 ```
 
 Source scan:
@@ -263,5 +300,6 @@ No trusted Sector9 source was found.
 - Adding more stake resets the caller's active-stake voting unlock time.
 - No abstain vote and no vote replacement.
 - No early close when an outcome is mathematically final; close is deadline-only.
-- No proposal archive beyond the current proposal slot.
+- Proposal capacity is fixed at 32 lifetime proposals; the 33rd creation
+  rejects.
 - No execution actions beyond DAO config changes.

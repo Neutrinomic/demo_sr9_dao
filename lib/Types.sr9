@@ -29,16 +29,40 @@ module {
     noVotes : Nat;
     quorumVotes : Nat;
     snapshotActiveStake : Nat;
+    bond : Nat;
     createdAt : Int;
     deadline : Int;
     status : ProposalStatus
   };
 
+  public type DaoTotals = {
+    totalSupply : Nat;
+    totalLiquid : Nat;
+    totalActiveStake : Nat;
+    totalPendingUnstake : Nat;
+    totalPendingWithdraw : Nat;
+    totalProposalBonds : Nat
+  };
+
+  public type ProposalWindow = {
+    nextProposalId : Nat;
+    maxProposals : Nat
+  };
+
+  public type VoteInfo = {
+    hasVoted : Bool;
+    choice : ?VoteChoice;
+    voteWeight : Nat;
+    lockedStake : Nat
+  };
+
   public type StakeInfo = {
     liquid : Nat;
     activeStake : Nat;
+    proposalBond : Nat;
     pendingUnstake : Nat;
     pendingWithdraw : Nat;
+    activeVoteLock : Nat;
     votingPowerUnlockAt : ?Int;
     unlockAt : ?Int
   };
@@ -168,7 +192,7 @@ module {
     #proposalThresholdNotMet;
     #stakeLockActive : { now : Int; unlockAt : Int };
     #invalidConfigAction;
-    #proposalInProgress
+    #proposalCapacityReached
   };
 
   public type VoteError = {
@@ -176,6 +200,7 @@ module {
     #proposalNotOpen;
     #noVotingPower;
     #stakeLockActive : { now : Int; unlockAt : Int };
+    #votingPeriodEnded : { now : Int; deadline : Int };
     #alreadyVoted
   };
 
